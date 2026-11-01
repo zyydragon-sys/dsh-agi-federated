@@ -29,7 +29,7 @@ window.__ModuleLoader__.load({
     const NS = 'quota-nexus'
     const BASE = '/quota-nexus'
     /** 构建标记：页面上可见，用于确认浏览器加载的是哪一版客户端模块。 */
-    const BUILD_TAG = 'v1.22.3'
+    const BUILD_TAG = 'v1.22.4'
 
     const STRATEGIES = ['priority', 'round-robin', 'balanced', 'sticky']
 
@@ -2186,15 +2186,27 @@ window.__ModuleLoader__.load({
       const compact = props?.compact === true
       useBuildSelfHeal()
       const [data, setData] = useState(null)
+      const [failure, setFailure] = useState(null)
 
       useEffect(() => {
         let alive = true
         const load = () => {
           void Promise.all([api('/api/overview'), api('/api/rotation'), api('/api/usage?range=day')])
             .then(([overview, rotation, usage]) => {
-              if (alive) setData({ overview, rotation, usage })
+              if (!alive) return
+              // api() 在传输层失败时返回 { ok:false, code }，不会抛错——必须显式判失败，
+              // 否则界面会显示一堆 0 假装一切正常。
+              const failed = overview?.ok === false ? overview : rotation?.ok === false ? rotation : null
+              if (failed) {
+                setFailure(failed)
+                return
+              }
+              setFailure(null)
+              setData({ overview, rotation, usage })
             })
-            .catch(() => {})
+            .catch((error) => {
+              if (alive) setFailure({ ok: false, code: 'quota_nexus_network', message: String(error?.message ?? error) })
+            })
         }
         load()
         const timer = setInterval(load, 15000)
@@ -2204,6 +2216,29 @@ window.__ModuleLoader__.load({
         }
       }, [])
 
+      if (!data && failure) {
+        // REST 不可用（例如 Host 启动顺序问题导致面板没注册）时也要可见，而不是整条消失。
+        return h(
+          'span',
+          {
+            'data-plugin': 'dsh-quota-nexus',
+            title: `额度中枢不可用：${failure.code ?? 'unknown'} — ${failure.message ?? ''}`,
+            style: {
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '2px 10px',
+              borderRadius: 999,
+              border: '1px solid var(--dsw-alias-state-error-primary)',
+              fontSize: 11,
+              lineHeight: '18px',
+              color: 'var(--dsw-alias-state-error-primary)',
+              whiteSpace: 'nowrap',
+            },
+          },
+          `● 额度中枢不可用 (${failure.code ?? 'unknown'})`,
+        )
+      }
       if (!data) return null
       const rows = data.usage?.providers ?? []
       const tokens = rows.reduce((sum, row) => sum + (Number(row?.totals?.tokens) || 0), 0)
