@@ -52,6 +52,14 @@ index, and independent verification for high-risk claims.
 its own storage budget and a cold, inspectable projection; it must not inflate
 the prompt or block the agent loop.
 
+## Memory-bank adoption
+
+Adopted from the Mnemon / learning-memory / OpenViking / Deja cluster:
+local-first project isolation, knowledge pages, BM25 recall, auto-capture, and
+graph links. Rejected: scraping 42 external agent session formats, remote
+memory services, embeddings, and unbounded knowledge graphs. The bank is local
+JSON, deterministic, redacted, and capped.
+
 ## Current implementation
 
 - `1.4.0` adds the safe UI refresh button and the `信任自检` card.
