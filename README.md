@@ -14,7 +14,7 @@ This repository ships more than one DSH bundle. The root is `dsh-agi-federated`;
 | Path | Bundle | What it is |
 |---|---|---|
 | `/` | `dsh-agi-federated` | The federated AGI layer described below. |
-| [`plugins/dsh-quota-nexus`](plugins/dsh-quota-nexus) | `dsh-quota-nexus` **v1.3.0** | Multi-provider quota pool: provider registry UI (OpenAI-compatible, Anthropic Messages incl. custom `base_url` relays, Gemini), O(1) lease scheduling with an 8-account budget, split 429/5xx breakers with credential fuse, write-behind usage ledger, and 0s SSE quota telemetry with 80/90/95% alerts. Adds a left-sidebar panel entry beside Settings. |
+| [`plugins/dsh-quota-nexus`](plugins/dsh-quota-nexus) | `dsh-quota-nexus` **v1.6.0** | Multi-provider quota pool: provider registry UI (OpenAI-compatible, Anthropic Messages incl. custom `base_url` relays, Gemini), O(1) lease scheduling with an 8-account budget, split 429/5xx breakers with credential fuse, write-behind usage ledger, and 0s SSE quota telemetry with 80/90/95% alerts. Adds a left-sidebar panel entry beside Settings. |
 
 Publishing local edits to GitHub (no git needed on this machine):
 
@@ -31,6 +31,7 @@ node scripts/publish.mjs --plugin dsh-quota-nexus
 - **Staged skills** — writes go to `staged/`; promotion is deferred to idle/session-end review.
 - **Evidence gate** — every `write`/`edit` claim is cross-checked against a per-session index of tool parameter and output anchors (400 records), with a five-step false-positive ladder.
 - **Usage monitor** — dual-channel token accounting (live estimate + official usage settlement), provider balance refresh every second, monthly-budget breaker for `spendOnly` providers, and a floating status window.
+- **Official cost** — DeepSeek Flash pricing from the API price table (off-peak/peak), with the last settled request breakdown shown in the panel.
 - **Zero trust** — workspace credential required for federated mutations; every deny/ask is appended to a hash-chained audit log.
 - **Federation seams** — JEPA world model, CUV value/conflict scorer, and mp-rcp quorum arbiter are mounted as advisory, default-allow seams.
 
