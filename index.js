@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { CONFIG_VERSION, DEFAULT_CONFIG, normalizeConfig, validateConfig } from './schemas/config.js'
 
 const PLUGIN_ID = 'dsh-agi-federated'
-const PLUGIN_VERSION = '1.5.0'
+const PLUGIN_VERSION = '1.5.1'
 const MEMORY_FILE = 'memory.json'
 const EVIDENCE_FILE = 'evidence.json'
 const USAGE_FILE = 'usage.json'
@@ -2343,7 +2343,15 @@ class AgiFederated {
     this.registerEvents()
     this.registerTools()
     this.registerCommand()
-    this.registerUi()
+    try {
+      if (typeof this.ctx?.inject === 'function') {
+        this.ctx.inject(['webServer'], (webCtx) => this.registerUi(webCtx))
+      } else {
+        this.registerUi()
+      }
+    } catch (error) {
+      this.log.warn(`webServer injection failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
     try {
       if (typeof this.ctx?.effect === 'function') {
         this.ctx.effect(() => {
@@ -4184,9 +4192,9 @@ class AgiFederated {
     return lines.join('\n')
   }
 
-  registerUi() {
+  registerUi(webCtx = this.ctx) {
     if (!this.config.ui.enabled) return
-    const web = this.ctx?.get?.('webServer')
+    const web = webCtx?.get?.('webServer') || this.ctx?.get?.('webServer')
     if (!web || typeof web.register !== 'function') return
     try {
       const register = (route) => {
@@ -4319,4 +4327,5 @@ export function apply(ctx, rawConfig) {
   return plugin
 }
 
+export const inject = ['tools']
 export { normalizeConfig, validateConfig, PLUGIN_ID, PLUGIN_VERSION }
