@@ -1,4 +1,4 @@
-﻿# dsh-agi-federated — Architecture Design
+# dsh-agi-federated — Architecture Design
 
 **Author:** txcdragon  
 **Version:** 1.1.0  
