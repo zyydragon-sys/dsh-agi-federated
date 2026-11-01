@@ -1,5 +1,6 @@
 /**
  * dsh-quota-nexus — Client half (Web)。
+ * build: 1.1.0 (anthropic-protocol) — 该标记随发布变化，用于让浏览器取到新模块而不是旧缓存。
  *
  * 在“设置 → Quota Nexus”里渲染卡片列表式供应商管理：
  *   每行 = 提供商名称 + 状态点（已连接/离线/异常）+ 右侧“编辑”“删除”；
@@ -57,6 +58,7 @@ window.__ModuleLoader__.load({
         'field.vendor': '提供商',
         'field.label': '显示名称',
         'field.baseUrl': 'Base URL（OpenAI 兼容协议）',
+        'field.baseUrl.anthropic': 'Base URL（Anthropic Messages 协议）',
         'field.apiKey': 'API Key',
         'field.validate': '保存前校验连通性',
         'hint.anthropic':
@@ -113,6 +115,7 @@ window.__ModuleLoader__.load({
         'field.vendor': 'Provider',
         'field.label': 'Display name',
         'field.baseUrl': 'Base URL (OpenAI compatible)',
+        'field.baseUrl.anthropic': 'Base URL (Anthropic Messages)',
         'field.apiKey': 'API Key',
         'field.validate': 'Verify connectivity before saving',
         'hint.anthropic':
@@ -759,7 +762,13 @@ window.__ModuleLoader__.load({
                 h(
                   'div',
                   { style: style.field },
-                  h('span', { style: style.label }, t('field.baseUrl')),
+                  h(
+                    'span',
+                    { style: style.label },
+                    PROTOCOL[vendorId] === 'anthropic-messages'
+                      ? t('field.baseUrl.anthropic')
+                      : t('field.baseUrl'),
+                  ),
                   h('input', {
                     style: style.input,
                     value: baseUrl,
