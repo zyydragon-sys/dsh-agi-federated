@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Publish DSH plugin bundles in this repository through the GitHub Contents API.
  *
  * Why this exists: this machine has no git binary and no stored GitHub credential,
@@ -62,12 +62,12 @@ const GROUPS = {
       'scripts/watch.mjs',
       'scripts/ci-doctor.mjs',
       'scripts/profile-guard.mjs',
+      'scripts/preflight.mjs',
       'scripts/skills-sync.mjs',
       '.github/workflows/ci.yml',
     ],
   },
-  // 项目级技能的版本化副本（单向镜像自 <workspace>/.dsh/skills）。
-  'skills': { prefix: 'skills', dir: 'skills' },
+  // 椤圭洰绾ф妧鑳界殑鐗堟湰鍖栧壇鏈紙鍗曞悜闀滃儚鑷?<workspace>/.dsh/skills锛夈€?  'skills': { prefix: 'skills', dir: 'skills' },
   // A nested bundle: the whole directory is walked.
   'dsh-quota-nexus': { prefix: 'plugins/dsh-quota-nexus', dir: 'plugins/dsh-quota-nexus' },
 }
@@ -153,15 +153,15 @@ async function collect(group) {
 }
 
 async function main() {
-  // 不崩盘铁律：发布前必须过 preflight（语法/自检/装配/清单/渲染）。
+  // Hard gate: a release must pass preflight before it is mirrored to GitHub.
   if (!process.argv.includes('--skip-preflight')) {
     const gate = spawnSync(process.execPath, [path.join(REPO_ROOT, 'scripts', 'preflight.mjs')], { stdio: 'inherit' })
     if (gate.status !== 0) {
-      console.error('preflight 未通过，发布中止。修好再发，或明确用 --skip-preflight（不推荐）。')
+      console.error('preflight failed; publish aborted. Fix it first (or pass --skip-preflight knowingly).')
       process.exit(1)
     }
   } else {
-    console.warn('[warn] 已跳过 preflight —— 这次发布不保证可加载。')
+    console.warn('[warn] preflight skipped: this publish is not load-verified.')
   }
   const options = parseArgs(process.argv.slice(2))
   const names = options.all ? Object.keys(GROUPS) : options.plugin ? [options.plugin] : []
@@ -172,7 +172,7 @@ async function main() {
   for (const name of names) {
     for (const file of await collect(GROUPS[name])) plan.push({ group: name, ...file })
   }
-  console.log(`repo ${options.owner}/${options.repo} · groups ${names.join(', ')} · files ${plan.length}`)
+  console.log(`repo ${options.owner}/${options.repo} 路 groups ${names.join(', ')} 路 files ${plan.length}`)
 
   if (options.dryRun) {
     for (const file of plan) console.log('would upload', file.remote, (await stat(file.absolute)).size)
@@ -265,7 +265,7 @@ async function main() {
     console.log(sha ? 'updated' : 'added  ', file.remote)
   }
 
-  console.log(`done · added ${added} · updated ${updated}`)
+  console.log(`done 路 added ${added} 路 updated ${updated}`)
   console.log(`repo https://github.com/${options.owner}/${options.repo}/tree/${branch}`)
   if (fromFile && !options.keepToken) {
     try {
