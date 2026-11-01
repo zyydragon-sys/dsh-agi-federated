@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.6.3 — 2026-11-01
+
+- 项目级技能纳入版本化：新增 `skills/` 目录与 `skills/README.md`，收录
+  `dsh-stale-edit-recovery`、`darwin-fix-1f205770`、`darwin-llm-retry-loop` 三个
+  `SKILL.md`。活动挂载仍在 `<workspace>/.dsh/skills`（DSH 从这里热加载），
+  `skills/` 是单向镜像。
+- 新增 `scripts/skills-sync.mjs`：`--check`（CI 友好，漂移退出码 1）、`--list`（JSON 差异），
+  默认镜像；只做 挂载 → 仓库 单向写入，仓库独有文件只报告不删除。
+- 修正 `darwin-llm-retry-loop` 的 `whenToUse`：原值为 stale-edit 文案（模板串味），
+  已改成“同一回合反复出现 llm/retry 或 429/额度/上下文导致连续失败时”。
+- `publish.mjs` 增加 `skills` 分组，发布时随包推送。
+
 ## 1.6.2 — 2026-11-01
 
 - CI 红灯不再自生自灭：新增 `file-ticket` job（`needs: [selftest, drift]`、`if: failure()`），
