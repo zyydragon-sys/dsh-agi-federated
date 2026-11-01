@@ -3,6 +3,21 @@
 The nested bundle keeps its own version, independent of the root
 `dsh-agi-federated` bundle (`plugins/dsh-quota-nexus/package.json`).
 
+## 1.8.0 — 2026-11-01
+
+- Cross-provider rotation: `selectModel()` now cycles across providers instead of
+  always returning the first candidate — repeated `quick` calls alternate
+  DeepSeek → MiniMax → DeepSeek, spreading consumption across accounts.
+  Verified live: call 1 `deepseek-flash` (next MiniMax), call 2
+  `MiniMax-M3.1-Flash` (next DeepSeek).
+- Rotation only considers *available* candidates (cooling / quota / fuse states are
+  skipped); `strategy: "balanced"` picks the least-recently-used provider instead of
+  a fixed order, and `providerId` pins selection to one provider without rotation.
+- Responses now report `strategy`, `rotationSize` and
+  `decision.rotation { index, total, next }`; the tool schema documents both
+  strategies.
+- UI: the header shows “轮转 N 家供应商” when more than one provider is routable.
+
 ## 1.7.0 — 2026-11-01
 
 - Auto model routing: `selectModel({ task })` maps a task class to the模型/账号
