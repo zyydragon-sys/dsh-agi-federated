@@ -54,12 +54,12 @@ window.__ModuleLoader__.load({
       }, h('span', { style: { width: 6, height: 6, borderRadius: 99, background: color } }), children);
     }
 
-    function Row({ label, value }) {
+    function Row({ label, value, valueColor }) {
       return h('div', {
         style: { display: 'flex', justifyContent: 'space-between', gap: 18, padding: '8px 0', borderBottom: '1px solid var(--dsw-alias-border-l1)' },
       },
         h('span', { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 13 } }, label),
-        h('span', { style: { color: 'var(--dsw-alias-label-primary)', fontSize: 13, fontWeight: 600, textAlign: 'right' } }, value),
+        h('span', { style: { color: valueColor || 'var(--dsw-alias-label-primary)', fontSize: 13, fontWeight: 600, textAlign: 'right' } }, value),
       );
     }
 
@@ -90,7 +90,14 @@ window.__ModuleLoader__.load({
       const kind = state.kind;
       const data = state.data;
       const d = data && data.details ? data.details : {};
+      const [query, setQuery] = React.useState('');
+      const needle = query.trim().toLowerCase();
+      const matches = (value) => !needle || String(value || '').toLowerCase().includes(needle);
+      const clues = (d.memory?.clues || []).filter((clue) => matches(clue.summary) || matches((clue.keywords || []).join(' ')));
+      const evidence = (d.evidence?.recent || []).filter((record) => matches(record.tool) || matches(record.summary));
+      const skills = (d.skills?.list || []).filter((skill) => matches(skill.name) || matches((skill.tags || []).join(' ')));
       const titles = { runtime: '运行状态', memory: '记忆与证据', skills: '技能与审计', federation: '联邦 seams' };
+      const searchable = kind === 'memory' || kind === 'skills';
       let body = null;
       if (state.loading) body = h('p', { style: { color: 'var(--dsw-alias-label-secondary)' } }, '读取中…');
       else if (state.error) body = h('p', { style: { color: 'var(--dsw-alias-state-error-primary)' } }, state.error);
@@ -98,7 +105,7 @@ window.__ModuleLoader__.load({
         body = h(React.Fragment, null,
           h(Row, { label: '模型', value: (data.model?.provider || '—') + ' / ' + (data.model?.model || '—') }),
           h(Row, { label: '上次请求', value: (data.lastSettlement?.usage ? (data.lastSettlement.usage.inputTokens || 0) + ' in · ' + (data.lastSettlement.usage.cacheReadTokens || 0) + ' cache · ' + (data.lastSettlement.usage.outputTokens || 0) + ' out' : '—') }),
-          h(Row, { label: '上下文', value: (data.session?.contextTokens || 0).toLocaleString() + ' / ' + (data.session?.contextWindow || 0).toLocaleString() }),
+          h(Row, { label: '上下文', value: (data.session?.contextTokens || 0).toLocaleString() + ' / ' + (data.session?.contextWindow || 0).toLocaleString() + ' · ' + Math.round((data.session?.contextRatio || 0) * 100) + '%', valueColor: data.session?.contextLevel === 'critical' ? 'var(--dsw-alias-state-error-primary)' : data.session?.contextLevel === 'warn' ? 'var(--dsw-alias-state-warn-primary)' : undefined }),
           h(Row, { label: '会话费用', value: '$' + Number(data.cost?.sessionUsd || 0).toFixed(4) }),
           h(Row, { label: '本月费用', value: '$' + Number(data.cost?.monthUsd || 0).toFixed(4) }),
           h(Row, { label: '计费时段', value: data.pricing?.peak ? 'peak · 官网价 x2' : 'off-peak · 官网价' }),
@@ -117,21 +124,21 @@ window.__ModuleLoader__.load({
         body = h(React.Fragment, null,
           h('h4', { style: { margin: '0 0 8px', fontSize: 13 } }, 'Hot Memory'),
           h('pre', { style: { margin: '0 0 16px', padding: 12, borderRadius: 8, background: 'var(--dsw-alias-bg-layer-2)', whiteSpace: 'pre-wrap', fontSize: 12, lineHeight: 1.55, overflow: 'auto' } }, d.memory?.text || '（空）'),
-          h('h4', { style: { margin: '0 0 8px', fontSize: 13 } }, 'Clue Store · ' + (d.memory?.clues?.length || 0)),
-          ...(d.memory?.clues?.length ? d.memory.clues.map((clue, index) => h('div', {
+          h('h4', { style: { margin: '0 0 8px', fontSize: 13 } }, 'Clue Store · ' + clues.length),
+          ...(clues.length ? clues.map((clue, index) => h('div', {
             key: index,
             style: { padding: '8px 0', borderBottom: '1px solid var(--dsw-alias-border-l1)', fontSize: 12 },
           }, h('div', { style: { fontWeight: 600 } }, '[' + clue.kind + '] ' + clue.summary), h('div', { style: { color: 'var(--dsw-alias-label-secondary)', marginTop: 3 } }, (clue.keywords || []).slice(0, 8).join(' · ')))) : h('p', { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 13 } }, '暂无线索')),
-          h('h4', { style: { margin: '16px 0 8px', fontSize: 13 } }, 'Evidence · ' + (d.evidence?.recent?.length || 0)),
-          ...(d.evidence?.recent?.length ? d.evidence.recent.slice().reverse().map((record, index) => h('div', {
+          h('h4', { style: { margin: '16px 0 8px', fontSize: 13 } }, 'Evidence · ' + evidence.length),
+          ...(evidence.length ? evidence.slice().reverse().map((record, index) => h('div', {
             key: index,
             style: { padding: '8px 0', borderBottom: '1px solid var(--dsw-alias-border-l1)', fontSize: 12 },
           }, h('div', { style: { fontWeight: 600 } }, '[' + record.level + '] ' + record.tool), h('div', { style: { color: 'var(--dsw-alias-label-secondary)', marginTop: 3 } }, record.summary || '—'))) : h('p', { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 13 } }, '暂无证据')),
         );
       } else if (kind === 'skills') {
         body = h(React.Fragment, null,
-          h('h4', { style: { margin: '0 0 8px', fontSize: 13 } }, 'Skills · ' + (d.skills?.list?.length || 0)),
-          ...(d.skills?.list?.length ? d.skills.list.map((skill) => h('div', {
+          h('h4', { style: { margin: '0 0 8px', fontSize: 13 } }, 'Skills · ' + skills.length),
+          ...(skills.length ? skills.map((skill) => h('div', {
             key: skill.id,
             style: { padding: '8px 0', borderBottom: '1px solid var(--dsw-alias-border-l1)', fontSize: 12 },
           }, h('div', { style: { fontWeight: 600 } }, skill.name + ' · ' + skill.stage), h('div', { style: { color: 'var(--dsw-alias-label-secondary)', marginTop: 3 } }, (skill.bytes || 0) + ' bytes · ' + ((skill.tags || []).join(', ') || 'no tags')))) : h('p', { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 13 } }, '暂无 skills')),
@@ -154,6 +161,23 @@ window.__ModuleLoader__.load({
             });
           }),
           h('p', { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 12, marginTop: 12 } }, '所有 seam 默认 advisory allow；失败被隔离并记录日志。'),
+        );
+      }
+      if (searchable && !state.loading && !state.error) {
+        body = h(React.Fragment, null,
+          h('input', {
+            value: query,
+            onChange: (event) => setQuery(event.target.value),
+            placeholder: '搜索记忆、证据、技能…',
+            style: {
+              width: '100%', boxSizing: 'border-box', marginBottom: 14,
+              padding: '8px 10px', borderRadius: 8,
+              border: '1px solid var(--dsw-alias-border-l1)',
+              background: 'var(--dsw-alias-bg-layer-2)',
+              color: 'var(--dsw-alias-label-primary)', fontSize: 13, outline: 'none',
+            },
+          }),
+          body,
         );
       }
       return h('div', {
@@ -223,7 +247,7 @@ window.__ModuleLoader__.load({
         h('div', { style: { display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))' } },
           h(Card, { title: '运行状态', onClick: () => openDetail('runtime') },
             h(Row, { label: '模型', value: (model.provider || '—') + ' / ' + (model.model || '—') }),
-            h(Row, { label: '上次请求', value: (usage.contextTokens || 0).toLocaleString() + ' tokens' }),
+            h(Row, { label: '上次请求', value: (usage.contextTokens || 0).toLocaleString() + ' (' + Math.round((usage.contextRatio || 0) * 100) + '%)', valueColor: usage.contextLevel === 'critical' ? 'var(--dsw-alias-state-error-primary)' : usage.contextLevel === 'warn' ? 'var(--dsw-alias-state-warn-primary)' : undefined }),
             h(Row, { label: '会话费用', value: '$' + Number(data && data.cost && data.cost.sessionUsd ? data.cost.sessionUsd : 0).toFixed(4) }),
             h(Row, { label: 'Provider', value: (data && data.providers ? data.providers.filter((p) => p.status === 'ok').length : 0) + ' 个正常' }),
           ),
