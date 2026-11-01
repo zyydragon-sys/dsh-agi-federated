@@ -1,13 +1,13 @@
-﻿/**
+/**
  * Compare the local repository files and package version with GitHub.
  * Read-only. Uses GITHUB_TOKEN/GH_TOKEN when present for a higher rate limit.
  */
-import { readFile, readdir, stat } from 'node:fs/promises'
+import { readFile, readdir } from 'node:fs/promises'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
-const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..')
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const OWNER = process.env.SYNC_OWNER || 'zyydragon-sys'
 const REPO = process.env.SYNC_REPO || 'dsh-agi-federated'
 const BRANCH = process.env.SYNC_BRANCH || 'main'
@@ -48,16 +48,12 @@ async function walk(dir, prefix = '') {
   return out
 }
 
-const roots = [
-  { dir: '.', prefix: '' },
-  { dir: 'plugins/dsh-quota-nexus', prefix: 'plugins/dsh-quota-nexus' },
-]
 const files = []
-for (const group of roots) {
-  for (const file of await walk(path.join(ROOT, group.dir), group.prefix)) {
-    if (file.relative.startsWith('scripts/') || file.relative === '.github-token') continue
-    files.push(file)
-  }
+const seen = new Set()
+for (const file of await walk(ROOT)) {
+  if (file.relative === '.github-token' || seen.has(file.relative)) continue
+  seen.add(file.relative)
+  files.push(file)
 }
 
 const fetchFn = await fetchImpl()
