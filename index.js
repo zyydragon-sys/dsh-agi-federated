@@ -2860,7 +2860,7 @@ class AgiFederated {
       used += line.length + 1
     }
     const projectBank = this.bankForSession(sid, 'project')
-    const bankRecall = this.bm25Recall(query, 4, null, projectBank, 0.05).filter((item) => item.source !== 'auto:tool-error')
+    const bankRecall = this.bm25Recall(query, 4, null, projectBank, 0.01).filter((item) => item.source !== 'auto:tool-error')
     const projectLines = []
     for (const item of bankRecall) {
       const line = `- [${item.kind}] ${item.title}: ${item.summary}`
@@ -2888,7 +2888,7 @@ class AgiFederated {
     const documents = []
     for (const clue of source.values()) {
       if (!clue || excludeIds?.has(clue.id)) continue
-      const text = `${(clue.keywords || []).join(' ')} ${(clue.seedTokens || []).join(' ')} ${clue.summary || ''}`
+      const text = `${(clue.keywords || []).join(' ')} ${(clue.seedTokens || []).join(' ')} ${clue.title || ''} ${clue.summary || ''} ${(clue.content || '').slice(0, 2000)}`
       const tokens = tokenize(text)
       if (tokens.length === 0) continue
       const frequencies = new Map()
@@ -3926,7 +3926,7 @@ class AgiFederated {
         const sid = asString(args?.session_id) || asString(exec?.agent?.id) || this.lastSessionId
         const scope = ['project', 'global', 'all'].includes(args?.scope) ? args.scope : 'project'
         const bank = this.bankForSession(sid, scope)
-        const results = this.bm25Recall(asString(args?.query), Math.trunc(finiteNumber(args?.limit, 8)), null, bank, 0.05)
+        const results = this.bm25Recall(asString(args?.query), Math.trunc(finiteNumber(args?.limit, 8)), null, bank, 0.01)
           .filter((item) => /error|fail|lesson|错误|失败|教训/i.test(asString(args?.query)) || item.source !== 'auto:tool-error')
           .map((item) => ({
             id: asString(item.id),
@@ -3964,7 +3964,7 @@ class AgiFederated {
         let record = args?.id ? this.memory.bank.get(asString(args.id)) : null
         if (!record && args?.query) {
           const bank = this.bankForSession(sid, 'project')
-          const hit = this.bm25Recall(asString(args.query), 1, null, bank, 0.05)[0]
+          const hit = this.bm25Recall(asString(args.query), 1, null, bank, 0.01)[0]
           if (hit) record = this.memory.bank.get(hit.id)
         }
         if (!record) return { found: false }
