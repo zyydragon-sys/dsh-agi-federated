@@ -341,10 +341,19 @@ const VENDOR_CATALOG = Object.freeze({
  * 高峰：UTC 周一至周五 01:00-04:00 与 06:00-10:00（= 北京时间 09:00-12:00、14:00-18:00），
  * 不含中国法定节假日；其余为空闲时段，空闲价为高峰价的一半。
  */
+/** 价目表折算用的参考汇率：官方 DeepSeek 用 USD，MiniMax 用 CNY，内部统一成 USD。 */
+const CNY_PER_USD_REF = 7.1
+
 const PRICE_SNAPSHOT = Object.freeze({
   source: 'https://api-docs.deepseek.com/quick_start/pricing',
   capturedAt: '2026-11-01',
   unit: 'USD per 1M tokens',
+  // 第二来源：MiniMax 官方定价（人民币/百万 tokens，2026-11-01 抓取）。
+  // 内部仍统一折算成 USD，展示层再按汇率换回人民币，保证两种币种只有一个真值源。
+  sources: {
+    'deepseek': { url: 'https://api-docs.deepseek.com/quick_start/pricing', currency: 'USD', capturedAt: '2026-11-01' },
+    'minimax-cn': { url: 'https://platform.minimax.cn/docs/pricing/overview', currency: 'CNY', capturedAt: '2026-11-01' },
+  },
   vendors: {
     deepseek: {
       'deepseek-flash': {
@@ -354,6 +363,22 @@ const PRICE_SNAPSHOT = Object.freeze({
       'deepseek-v4-pro': {
         peak: { cacheHit: 0.044, input: 1.32, output: 3.96 },
         offpeak: { cacheHit: 0.022, input: 0.66, output: 1.98 },
+      },
+    },
+    // 官方价目表为人民币/百万 tokens；这里按 7.1 折算成 USD 存储。
+    // 官方无分时计价，peak/offpeak 取同一组值以复用现有结构。
+    'minimax-cn': {
+      'MiniMax-M3.1-Flash': {
+        peak: { cacheHit: 0.1 / CNY_PER_USD_REF, input: 1.0 / CNY_PER_USD_REF, output: 4.0 / CNY_PER_USD_REF },
+        offpeak: { cacheHit: 0.1 / CNY_PER_USD_REF, input: 1.0 / CNY_PER_USD_REF, output: 4.0 / CNY_PER_USD_REF },
+      },
+      'MiniMax-M3': {
+        peak: { cacheHit: 0.42 / CNY_PER_USD_REF, input: 2.1 / CNY_PER_USD_REF, output: 8.4 / CNY_PER_USD_REF },
+        offpeak: { cacheHit: 0.42 / CNY_PER_USD_REF, input: 2.1 / CNY_PER_USD_REF, output: 8.4 / CNY_PER_USD_REF },
+      },
+      'MiniMax-M2.7': {
+        peak: { cacheHit: 0.42 / CNY_PER_USD_REF, input: 2.1 / CNY_PER_USD_REF, output: 8.4 / CNY_PER_USD_REF },
+        offpeak: { cacheHit: 0.42 / CNY_PER_USD_REF, input: 2.1 / CNY_PER_USD_REF, output: 8.4 / CNY_PER_USD_REF },
       },
     },
   },
@@ -389,7 +414,7 @@ const nextBillingChangeAt = (ms, holidays = []) => {
 }
 
 /** 用价格快照估算一次调用费用（USD）。无对应价格时返回 null。 */
-const estimateCost = (vendorId, model, usage, atMs, holidays, phaseOverride) => {
+export const estimateCost = (vendorId, model, usage, atMs, holidays, phaseOverride) => {
   const table = PRICE_SNAPSHOT.vendors[vendorId]
   if (!table || !table[model]) return null
   const price = table[model][phaseOverride || billingPhaseAt(atMs, holidays)]
@@ -2140,6 +2165,11 @@ class QuotaNexusRuntime {
       }
     }
     files.sort((a, b) => b.at - a.at)
+    if (files.length) {
+      // 会话文件最近被写过，说明 agent 可能正在干活；把它纳入空闲判定。
+      const newest = files[0].at
+      if (!this.lastSessionActivityAt || newest > this.lastSessionActivityAt) this.lastSessionActivityAt = newest
+    }
     let imported = 0
     for (const file of files.slice(0, 80)) {
       let parsed
@@ -2161,6 +2191,7 @@ class QuotaNexusRuntime {
           outputTokens: Number(totals.outputTokens) || 0,
           cacheReadTokens: Number(totals.cacheReadTokens) || 0,
           cacheWriteTokens: Number(totals.cacheWriteTokens) || 0,
+          route: lastUsed ? { provider: String(lastUsed.provider ?? ''), model: String(lastUsed.model ?? '') } : null,
         })
         this.usageImportedBaselineSample ??= {
           session: sessionId,
@@ -2168,25 +2199,30 @@ class QuotaNexusRuntime {
         }
         continue
       }
-      const previous = this.sessionUsageSeen.get(sessionId) ?? {}
+      const previousEntry = this.sessionUsageSeen.get(sessionId) ?? {}
+      const previous = previousEntry
       const delta = {
         uncachedInputTokens: Number(totals.uncachedInputTokens) - Number(previous.uncachedInputTokens ?? 0),
         outputTokens: Number(totals.outputTokens) - Number(previous.outputTokens ?? 0),
         cacheReadTokens: Number(totals.cacheReadTokens) - Number(previous.cacheReadTokens ?? 0),
         cacheWriteTokens: Number(totals.cacheWriteTokens) - Number(previous.cacheWriteTokens ?? 0),
       }
+      // 归属规则：增量发生在两次轮询之间，期间真正在服务的是**上一次轮询记录的路由**，
+      // 所以优先用 previousEntry.route；只有它缺失时才退回当前路由。
+      const routeAtPrevious = previousEntry.route ?? null
       this.sessionUsageSeen.set(sessionId, {
         uncachedInputTokens: Number(totals.uncachedInputTokens) || 0,
         outputTokens: Number(totals.outputTokens) || 0,
         cacheReadTokens: Number(totals.cacheReadTokens) || 0,
         cacheWriteTokens: Number(totals.cacheWriteTokens) || 0,
+        route: lastUsed ? { provider: String(lastUsed.provider ?? ''), model: String(lastUsed.model ?? '') } : routeAtPrevious,
       })
       // 计数回退说明会话被重置过：这一轮不导入，等下轮再算增量。
       if (delta.uncachedInputTokens < 0 || delta.outputTokens < 0 || delta.cacheReadTokens < 0) continue
       const tokens = delta.uncachedInputTokens + delta.outputTokens + delta.cacheReadTokens
       if (tokens <= 0) continue
-      const route = String(lastUsed?.provider ?? '')
-      const model = String(lastUsed?.model ?? '')
+      const route = String(routeAtPrevious?.provider ?? lastUsed?.provider ?? '')
+      const model = String(routeAtPrevious?.model ?? lastUsed?.model ?? '')
       const vendorId = vendorIdOfRoute(route)
       if (!vendorId) continue
       const record = [...this.providers.values()].find((entry) => entry.vendorId === vendorId)
@@ -2375,6 +2411,14 @@ class QuotaNexusRuntime {
 
   /** 应用一次轮转：调用 agentDefaultModel.saveSelection 切换 DSH 默认模型。 */
   async applyRotationStep() {
+    // 空闲才轮转：最近 window 内有真实用量说明用户正在用，不要在人家干活时换模型。
+    const activeAt = Math.max(this.lastUsageAt ?? 0, this.lastSessionActivityAt ?? 0)
+    if (this.config.rotationIdleOnly && activeAt) {
+      const idleFor = wallNow() - activeAt
+      if (idleFor < this.config.rotationIdleWindowMs) {
+        return { ok: false, code: 'quota_nexus_busy_recent_usage', skipped: true, idleFor, message: `最近 ${Math.round(idleFor / 1000)}s 内有真实调用，本轮跳过切换` }
+      }
+    }
     if (this.scheduler.leases.size > 0) {
       return { ok: false, code: 'quota_nexus_busy', skipped: true, message: '有在途请求，本轮跳过切换' }
     }
@@ -3353,7 +3397,7 @@ class QuotaNexusRuntime {
       void this.syncSessionUsage().catch((error) => this.warn('session_usage_failed', String(error?.message ?? error)))
     }
     syncUsage()
-    every(20_000, syncUsage)
+    every(this.config.usageSyncMs, syncUsage)
     every(30_000, () => this.scheduler.refreshSets())
     if (this.config.discoveryAutoScan) {
       const timer = setTimeout(() => {
@@ -3524,6 +3568,19 @@ class HttpSurface {
     add('GET', '/api/llm-diagnostics', async (req, res) => {
       if (!this.guard(req, res)) return
       writeJson(res, 200, { ok: true, diagnostics: await this.runtime.llmDiagnostics() })
+    })
+
+    add('GET', '/api/pricing', async (req, res) => {
+      if (!this.guard(req, res)) return
+      writeJson(res, 200, {
+        ok: true,
+        unit: PRICE_SNAPSHOT.unit,
+        capturedAt: PRICE_SNAPSHOT.capturedAt,
+        sources: PRICE_SNAPSHOT.sources,
+        vendors: PRICE_SNAPSHOT.vendors,
+        currency: { ...this.runtime.currency },
+        referenceRate: CNY_PER_USD_REF,
+      })
     })
 
     add('GET', '/api/currency', async (req, res) => {
@@ -3852,7 +3909,7 @@ const selectModelTool = (runtime) => ({
  * ------------------------------------------------------------------ */
 
 /** llm 路由 → 本插件厂商。 */
-const vendorIdOfRoute = (route) => {
+export const vendorIdOfRoute = (route) => {
   const id = String(route ?? '').toLowerCase()
   if (id.startsWith('deepseek')) return 'deepseek'
   if (id.startsWith('minimax')) return 'minimax-cn'
@@ -3868,7 +3925,7 @@ const vendorIdOfRoute = (route) => {
 }
 
 /** 从任意 chunk 里宽松地找 token 用量字段（不依赖具体协议字段名）。 */
-const extractUsage = (value, depth = 0) => {
+export const extractUsage = (value, depth = 0) => {
   if (!value || typeof value !== 'object' || depth > 4) return null
   const found = { input: 0, output: 0, cached: 0, total: 0 }
   let hit = false
@@ -3890,7 +3947,7 @@ const extractUsage = (value, depth = 0) => {
 }
 
 /** 合并两份用量（取各字段最大值，兼容累计与增量两种上报）。 */
-const mergeUsage = (current, next) => {
+export const mergeUsage = (current, next) => {
   if (!next) return current
   if (!current) return next
   return {
@@ -3900,6 +3957,10 @@ const mergeUsage = (current, next) => {
     total: Math.max(current.total, next.total),
   }
 }
+
+/** 供自检使用的能力相容判断（与运行时同一实现，避免测试复制逻辑）。 */
+export const compatible = (current, candidate, minContext, requireVision) =>
+  QuotaNexusRuntime.compatible(current, candidate, minContext, requireVision)
 
 export function apply(ctx, rawConfig) {
   const config = normalizeConfig(rawConfig)
