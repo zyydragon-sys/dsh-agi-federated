@@ -1340,6 +1340,7 @@ class QuotaNexusRuntime {
       const alerts = await this.pool.readJson(FILE.alerts, { version: 1, delivered: {} })
       for (const key of Object.keys(alerts?.delivered ?? {})) this.alertDedupe.set(key, alerts.delivered[key])
       await this.restoreOAuth()
+      await this.rebuildEvents()
       this.publish('ready', { providers: this.providers.size })
     } catch (error) {
       this.warn('init_failed', `初始化失败：${error?.message ?? error}`)
@@ -1408,6 +1409,7 @@ class QuotaNexusRuntime {
       lastAuthFailureWall: 0,
       inflight: 0,
       balance: null,
+      balanceSamples: [],
       balanceInFlight: false,
       balanceLastAt: 0,
       usage: { requests: 0, tokens: 0, sinceWall: wallNow(), resetsAtWall: 0 },
@@ -1962,6 +1964,10 @@ class QuotaNexusRuntime {
         return null
       }
       rt.balance = { ...parsed, observedAt: new Date().toISOString(), url }
+      rt.balanceSamples.push({ t: wallNow(), amount: parsed.amount })
+      const cutoff = wallNow() - 30 * 864e5
+      while (rt.balanceSamples.length > 2000) rt.balanceSamples.shift()
+      while (rt.balanceSamples.length > 0 && rt.balanceSamples[0].t < cutoff) rt.balanceSamples.shift()
       this.publish('balance', { account: maskAccount(rt.record), amount: parsed.amount, currency: parsed.currency })
       const floor = Number(this.config.alertBalanceFloor)
       if (floor > 0 && parsed.amount !== null && parsed.amount <= floor) {
@@ -2067,6 +2073,7 @@ class QuotaNexusRuntime {
       status,      verdict,
       latencyMs,
       usage: outcome.usage ?? null,
+      tokens: Number(outcome.usage?.total_tokens) || 0,
       remainingRatio: rt.quota.ratio ?? null,
     })
     this.publish('usage', { account: maskAccount(rt.record), status, latencyMs })
@@ -2411,6 +2418,104 @@ class QuotaNexusRuntime {
     }
   }
 
+  /**
+   * 从 usage-ledger.jsonl 重建本地事件环（最近 90 天），让趋势图与日历在重启后仍有历史。
+   * 只读、失败不影响启动。
+   */
+  async rebuildEvents() {
+    if (!this.pool.ready) return
+    let text
+    try {
+      text = await readFile(this.pool.path(FILE.ledger), 'utf8')
+    } catch {
+      return
+    }
+    const cutoff = wallNow() - 90 * 864e5
+    const lines = text.split(/\r?\n/)
+    const start = Math.max(0, lines.length - 50000)
+    for (let index = start; index < lines.length; index += 1) {
+      const line = lines[index].trim()
+      if (!line) continue
+      let record
+      try {
+        record = JSON.parse(line)
+      } catch {
+        continue
+      }
+      const at = Date.parse(record?.at ?? "")
+      if (!Number.isFinite(at) || at < cutoff) continue
+      const rt = [...this.scheduler.accounts.values()].find(
+        (account) => maskAccount(account.record) === record.account,
+      )
+      if (!rt) continue
+      rt.events.push({ t: at, model: record.model ?? null, tokens: Number(record.tokens) || 0 })
+    }
+    for (const rt of this.scheduler.accounts.values()) {
+      rt.events.sort((a, b) => a.t - b.t)
+      if (rt.events.length > 5000) rt.events.splice(0, rt.events.length - 5000)
+    }
+  }
+
+  /**
+   * 用量日历：按月分组、按 ISO 周聚合 token 用量（对齐控制台「每周 Token 热力」）。
+   * days 默认 180 天。数据来自本地事件环，没有调用就是 0。
+   */
+  usageCalendar({ months = 6, providerId } = {}) {
+    const now = wallNow()
+    const spanDays = Math.max(31, Math.min(365, Number(months) * 31 || 186))
+    const from = now - spanDays * 864e5
+    const records = providerId
+      ? [this.providers.get(providerId)].filter(Boolean)
+      : [...this.providers.values()]
+
+    const weekKey = (ms) => {
+      const date = new Date(ms)
+      const day = date.getUTCDay() || 7
+      const monday = ms - (day - 1) * 864e5
+      return new Date(monday).toISOString().slice(0, 10)
+    }
+
+    const providers = []
+    for (const record of records) {
+      const rt = this.scheduler.accounts.get(record.id)
+      const events = (rt && Array.isArray(rt.events) ? rt.events : []).filter((event) => event.t >= from)
+      const weeks = new Map()
+      for (const event of events) {
+        const key = weekKey(event.t)
+        const entry = weeks.get(key) || { weekStart: key, tokens: 0, requests: 0 }
+        entry.tokens += Number(event.tokens) || 0
+        entry.requests += 1
+        weeks.set(key, entry)
+      }
+      const byMonth = new Map()
+      for (const entry of weeks.values()) {
+        const monthKey = entry.weekStart.slice(0, 7)
+        if (!byMonth.has(monthKey)) byMonth.set(monthKey, [])
+        byMonth.get(monthKey).push(entry)
+      }
+      const monthRows = [...byMonth.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([key, list]) => ({
+          key,
+          label: key,
+          weeks: list.sort((a, b) => a.weekStart.localeCompare(b.weekStart)),
+          totalTokens: list.reduce((sum, entry) => sum + entry.tokens, 0),
+        }))
+      const maxTokens = Math.max(0, ...weeks.size ? [...weeks.values()].map((entry) => entry.tokens) : [0])
+      const totalTokens = [...weeks.values()].reduce((sum, entry) => sum + entry.tokens, 0)
+      providers.push({
+        providerId: record.id,
+        label: record.label,
+        months: monthRows,
+        totalTokens,
+        maxTokens,
+        weeks: [...weeks.values()].sort((a, b) => a.weekStart.localeCompare(b.weekStart)),
+      })
+    }
+
+    return { ok: true, from: new Date(from).toISOString(), to: new Date(now).toISOString(), providers }
+  }
+
   /* ---------------- 本机客户端快照发现（只扫描，不静默导入） ---------------- */
 
   discoverySources() {
@@ -2745,6 +2850,19 @@ class HttpSurface {
       } catch (error) {
         writeJson(res, 400, { ok: false, code: 'quota_nexus_bad_request', message: error?.message ?? String(error) })
       }
+    })
+
+    add('GET', '/api/usage/calendar', async (req, res) => {
+      if (!this.guard(req, res)) return
+      const url = new URL(req.url ?? '/', 'http://127.0.0.1')
+      writeJson(
+        res,
+        200,
+        this.runtime.usageCalendar({
+          months: Number(url.searchParams.get('months') ?? 6),
+          providerId: url.searchParams.get('providerId') ?? undefined,
+        }),
+      )
     })
 
     add('GET', '/api/usage', async (req, res) => {
