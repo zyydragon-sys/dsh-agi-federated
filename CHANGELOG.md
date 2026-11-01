@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.6.4 — 2026-11-01
+
+- 随包 `dsh-quota-nexus` 1.22.3：轮转遇到宿主 HMR 嵌套事务时标记可重试并 2 秒后重试一次，
+  并把错误时间写进 `overview.rotation.lastErrorAt`（避免旧错误看起来像刚发生）。
+
 ## 1.6.3 — 2026-11-01
 
 - 项目级技能纳入版本化：新增 `skills/` 目录与 `skills/README.md`，收录
