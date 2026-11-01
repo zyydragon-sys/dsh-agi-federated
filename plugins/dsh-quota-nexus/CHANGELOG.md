@@ -3,6 +3,49 @@
 The nested bundle keeps its own version, independent of the root
 `dsh-agi-federated` bundle (`plugins/dsh-quota-nexus/package.json`).
 
+## 1.6.0 — 2026-11-01
+
+- 0s live balances: a fast refresh loop (`balanceRefreshMs`, default 5000, min
+  1000) re-reads each vendor balance endpoint and pushes every result over SSE,
+  so an open panel updates without a page refresh. Per-account in-flight guard plus
+  an 800 ms floor prevent hammering the vendor API; the UI also fires
+  `POST /api/providers/refresh` on mount.
+- 0s countdowns: the client ticks once per second locally, so the reset countdown
+  and plan window advance smoothly between pushes (no extra requests).
+- Plan mode: a provider can declare `plan: { kind: "payg" | "subscription", limit,
+  unit, periodMs }`. Subscription windows roll on `anchorAt + n*periodMs`, reset the
+  local counter, and render “套餐：订阅 · used/limit · 剩余 · 重置 Ns”; pay-as-you-go
+  renders “套餐：按量计费”. Numbers come from declared limits + locally observed
+  usage (or official headers when the vendor sends them) — never invented.
+- UI: `0s 实时` chip with the last snapshot time, plan line per card, and plan
+  controls (type / limit / daily-weekly-monthly) in the provider dialog.
+
+## 1.5.0 — 2026-11-01
+
+- Models: `syncModels()` pulls the vendor’s official catalog and replaces the
+  hardcoded list, keeping `modelMeta` (display name, context window, max output)
+  and `modelsSyncedAt`. Verified against both live endpoints:
+  `GET https://api.deepseek.com/models` → 200 (`data[].id`, e.g. `deepseek-flash`),
+  `GET https://api.minimax.cn/anthropic/v1/models` → 200 (`data[].id`, `display_name`).
+  DeepSeek’s `/anthropic` base has no Models API (404), so the catalog carries an
+  explicit `modelsUrl`; other vendors fall back to `<base>/models`.
+- Usage: per-account window counters (`requests`, `tokens`) plus the reset
+  countdown taken from the official `x-ratelimit-reset-*` / `retry-after` headers,
+  shown as “本周期 N 次请求 · M tokens · 重置倒计时 …”. Local counters are the
+  fallback when a vendor advertises no quota headers — never invented numbers.
+- API/UI: `POST /api/providers/sync-models` (`{id}` or none for all), a per-card
+  “同步模型” button, a models line with count and synced time, and the usage line
+  on every card.
+
+## 1.4.0 — 2026-11-01
+
+- UI: each provider card carries its official **top-up entry** (plus the usage page
+  when the vendor publishes one): DeepSeek `https://platform.deepseek.com/top_up` and
+  `https://platform.deepseek.com/usage`; MiniMax `https://platform.minimax.cn/console/plan`.
+  Links open in a new tab with `rel="noopener noreferrer"`.
+- Providers: `providerView` exposes `rechargeUrl` / `usageUrl`; both can be overridden
+  per provider, with the vendor catalog supplying the defaults.
+
 ## 1.3.0 — 2026-11-01
 
 - Balance: the pool now reads official **account balance**, not only rate-limit
