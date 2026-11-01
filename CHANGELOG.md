@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.6.8 — 2026-11-02
+
+- 随包 `dsh-quota-nexus` 1.23.1：取证修正 + bundles 缩短检测（不自动回滚）。
+
+## 1.6.7 — 2026-11-02
+
+- 随包 `dsh-quota-nexus` 1.23.0：Host 内 profile 清单自愈（金样 + 留证 + 30s 复查）、
+  两个只读 REST 端点、19 条自检。
+- `scripts/profile-guard.mjs` 增强为可独立运行的同一套校验/修复逻辑（`--golden`、`--fix`、`--json`、
+  `--profile`），用于安装前后与手工排查。
+
 ## 1.6.6 — 2026-11-02
 
 - 新增 `scripts/profile-guard.mjs`：校验运行中 profile（`DSH_PROFILE_DIR`）的
