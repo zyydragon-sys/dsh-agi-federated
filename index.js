@@ -3919,8 +3919,16 @@ class AgiFederated {
         const bank = this.bankForSession(sid, scope)
         const results = this.bm25Recall(asString(args?.query), Math.trunc(finiteNumber(args?.limit, 8)), null, bank)
           .map((item) => ({
-            ...item,
-            links: this.bankLinks(this.memory.bank.get(item.id), 4),
+            id: asString(item.id),
+            kind: asString(item.kind, 'fact'),
+            title: asString(item.title),
+            summary: asString(item.summary),
+            score: finiteNumber(item.score, 0),
+            links: this.bankLinks(this.memory.bank.get(item.id), 4).map((link) => ({
+              id: asString(link.id),
+              title: asString(link.title),
+              score: finiteNumber(link.score, 0),
+            })),
           }))
         return { query: asString(args?.query), scope, results, bankSize: bank.size }
       },
