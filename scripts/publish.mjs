@@ -60,9 +60,12 @@ const GROUPS = {
       'scripts/monitor.mjs',
       'scripts/watch.mjs',
       'scripts/ci-doctor.mjs',
+      'scripts/skills-sync.mjs',
       '.github/workflows/ci.yml',
     ],
   },
+  // 项目级技能的版本化副本（单向镜像自 <workspace>/.dsh/skills）。
+  'skills': { prefix: 'skills', dir: 'skills' },
   // A nested bundle: the whole directory is walked.
   'dsh-quota-nexus': { prefix: 'plugins/dsh-quota-nexus', dir: 'plugins/dsh-quota-nexus' },
 }
