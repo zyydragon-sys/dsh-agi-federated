@@ -431,6 +431,20 @@ the runtime to four files and avoids inline-script CSP issues.
 The DSH plugin market is a curated catalog served from
 `awesome-dsh-plugin.com`; it has no direct upload endpoint. A listing is added
 by a pull request to `awesome-dsh-plugin/awesome-dsh-plugin` with one registry
-entry. This document and the package are prepared for that submission, but the
-current environment has no authenticated GitHub/npm identity to perform the
-remote write.
+entry.
+
+The plugin source is uploaded at:
+
+```text
+https://github.com/zyydragon-sys/dsh-agi-federated
+```
+
+The GitHub token used for the API upload authenticated as `zyydragon-sys`;
+`txcdragon` is the author/brand name and currently has no GitHub account or
+organization. The catalog entry must therefore use the actual repository owner
+unless the account is renamed or an organization is created before submission.
+
+The catalog requires a repository at least one day old, so the directory pull
+request is deferred to the next day. The prepared entry, README, architecture
+document, and archive live under `market-submission-txcdragon/`.
+
