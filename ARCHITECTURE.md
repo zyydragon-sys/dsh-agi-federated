@@ -387,7 +387,7 @@ It registers two slots:
 
 The panel reads `/agi-federated/status` every two seconds, uses only
 `--dsw-alias-*` theme tokens, and renders the same live snapshot as the floating
-window. Client installation is visible only after the Web page is refreshed;
+window. Client installation is visible only after the Host is restarted and the Web page is refreshed;
 the live slot tree is the verification surface.
 
 ## 15. Failure and degradation
@@ -468,6 +468,8 @@ The repository was created at 2026-11-01 17:41 Asia/Shanghai. The catalog
 requires a repository at least one day old, so the directory pull request is
 eligible from 2026-11-02 17:41 Asia/Shanghai. The prepared entry, README,
 architecture document, and archive live under `market-submission-txcdragon/`.
+
+
 
 
 
