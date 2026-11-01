@@ -135,6 +135,7 @@ window.__ModuleLoader__.load({
         'peak': '高峰时段',
         'offpeak': '空闲时段',
         'switchIn': '切换倒计时',
+        'sessions': '会话用量',
         'calendar': '每周 Token 热力',
         'calendarHint': '按 ISO 周聚合（近 6 个月）',
         'trend': '小时趋势',
@@ -266,6 +267,7 @@ window.__ModuleLoader__.load({
         'peak': 'Peak hours',
         'offpeak': 'Off-peak',
         'switchIn': 'changes in',
+        'sessions': 'Sessions',
         'calendar': 'Weekly token heat',
         'calendarHint': 'grouped by ISO week (last 6 months)',
         'trend': 'Hourly trend',
@@ -1171,6 +1173,14 @@ window.__ModuleLoader__.load({
                     `${seriesItem.model} ${fmtTokens(seriesItem.tokens)}`,
                   ),
                 ),
+              ),
+              h(
+                'div',
+                { style: { ...style.meta, marginTop: 2 } },
+                `${t('sessions')}: ${(row.sessions ?? []).slice(0, 3).map((entry) => entry.session + ' ' + fmtTokens(entry.tokens)).join(' · ') || t('detail.none')}`,
+              ),
+              ...(row.costByModel ?? []).slice(0, 3).map((entry) =>
+                h('div', { key: 'cost-' + entry.model, style: style.meta }, `${entry.model} · $${entry.costUsd.toFixed(4)}`),
               ),
               ...row.models.slice(0, 4).map((model) =>
                 h('div', { key: model.model, style: style.meta }, `${model.model} · ${model.requests} ${t('unitRequests')} · ${model.tokens} tok`),
