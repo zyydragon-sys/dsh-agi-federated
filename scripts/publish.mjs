@@ -205,22 +205,39 @@ async function main() {
     const encoded = file.remote.split('/').map(encodeURIComponent).join('/')
     const content = (await readFile(file.absolute)).toString('base64')
     let sha
-    try {
-      const existing = await gh(`/repos/${options.owner}/${options.repo}/contents/${encoded}?ref=${encodeURIComponent(branch)}`)
-      if (existing && existing.sha) sha = existing.sha
-    } catch (error) {
-      if (error.status !== 404) throw error
+    let uploaded = false
+    for (let attempt = 0; attempt < 3 && !uploaded; attempt += 1) {
+      try {
+        const existing = await gh(`/repos/${options.owner}/${options.repo}/contents/${encoded}?ref=${encodeURIComponent(branch)}`)
+        if (existing && existing.sha) sha = existing.sha
+      } catch (error) {
+        if (error.status !== 404) throw error
+        sha = undefined
+      }
+      try {
+        await gh(`/repos/${options.owner}/${options.repo}/contents/${encoded}`, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            message: `${file.group}: ${sha ? 'update' : 'add'} ${file.remote}`,
+            content,
+            branch,
+            ...(sha ? { sha } : {}),
+          }),
+        })
+        uploaded = true
+      } catch (error) {
+        // A concurrent writer changed the blob between GET and PUT. Re-read
+        // the new sha and retry; do not turn a transient race into a partial
+        // publish.
+        if (error.status === 409 && attempt < 2) {
+          console.log('conflict, retrying', file.remote)
+          await new Promise((resolve) => setTimeout(resolve, 600))
+          continue
+        }
+        throw error
+      }
     }
-    await gh(`/repos/${options.owner}/${options.repo}/contents/${encoded}`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        message: `${file.group}: ${sha ? 'update' : 'add'} ${file.remote}`,
-        content,
-        branch,
-        ...(sha ? { sha } : {}),
-      }),
-    })
     if (sha) updated += 1
     else added += 1
     console.log(sha ? 'updated' : 'added  ', file.remote)
