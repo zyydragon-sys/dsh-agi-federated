@@ -107,6 +107,11 @@ window.__ModuleLoader__.load({
             label: provider.label || provider.id,
             value: (provider.status || '—') + (provider.balance == null ? '' : ' · ' + provider.balance + ' ' + (provider.currency || '')),
           })),
+          h('h4', { style: { margin: '16px 0 8px', fontSize: 13 } }, '最近使用模型'),
+          ...(data.modelHistory?.length ? data.modelHistory.slice().reverse().map((item, index) => h('div', {
+            key: index,
+            style: { padding: '6px 0', borderBottom: '1px solid var(--dsw-alias-border-l1)', fontSize: 12 },
+          }, h('span', { style: { fontWeight: 600 } }, (item.provider || '—') + ' / ' + (item.model || '—')), h('span', { style: { marginLeft: 8, color: 'var(--dsw-alias-label-secondary)' } }, item.source || ''))) : h('p', { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 13 } }, '尚未记录模型切换')),
         );
       } else if (kind === 'memory') {
         body = h(React.Fragment, null,
