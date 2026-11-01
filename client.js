@@ -394,8 +394,16 @@ window.__ModuleLoader__.load({
       }
     }
 
+    function PanelFrame() {
+      return h('iframe', {
+        src: '/agi-federated/skills',
+        title: 'AGI Federated skills',
+        style: { width: '100%', height: 'calc(100vh - 16px)', border: 0, display: 'block', background: 'transparent' },
+      });
+    }
+
     function PanelRoot() {
-      return h(PanelBoundary, null, h(Panel));
+      return h(PanelBoundary, null, h(PanelFrame));
     }
 
     return {
