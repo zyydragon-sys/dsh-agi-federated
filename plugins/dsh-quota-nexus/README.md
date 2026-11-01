@@ -61,6 +61,18 @@ dsh --profile $env:DSH_PROFILE --dump-config
 - 日志与 UI 输出中的账号一律脱敏为 `vendorId#后 6 位`。
 - 损坏的 JSON 会被隔离为 `*.corrupt-<ts>` 而不是被覆盖。
 
+## 供应商协议
+
+| 协议族 | `kind` | 鉴权头 | 内置供应商 |
+|---|---|---|---|
+| OpenAI 兼容 | `openai-compatible` | `authorization: Bearer <key>` | DeepSeek / OpenAI / MiniMax / Moonshot / 智谱 / 通义（兼容模式）/ OpenRouter / Ollama / `custom` |
+| Anthropic Messages | `anthropic-messages` | `x-api-key` + `anthropic-version: 2023-06-01` | Anthropic 官方 / `custom-anthropic` |
+| Gemini | `gemini` | `x-goog-api-key` | Google Gemini |
+
+`custom-anthropic` 用于任意 Anthropic Messages 协议端点（官方直连或中转站）：**base_url 必填**，填到 `/v1` 为止——官方为 `https://api.anthropic.com/v1`，中转站填其对应的 `/v1` 根地址。设置页选中该供应商时会显示协议提示。
+
+校验连通性时，`/models` 返回 404/405 会被判定为“可达但无探测接口”而不是失败，避免中转端点被误判；401/403 仍然判定为凭据拒绝。
+
 ## 风险披露（非官方通道）
 
 本插件支持通过 **OpenAI 兼容协议** 接入任意第三方服务（`custom` 供应商），也支持配置
@@ -91,6 +103,13 @@ dsh --profile $env:DSH_PROFILE --dump-config
   （30 分钟，`needs_relogin`）。
 - 消耗达 95% 提前切换、剩余低于 5% 预冷；预警阈值 80/90/95% 与余额下限，带去重与 Webhook。
 - 冷却与租约剩余时间基于 `performance.now()` 单调时钟，系统时间跳变不影响倒计时。
+
+## 在哪里看到它
+
+- **左侧栏图标「额度中枢」**（`sidebar.panellist`，order 5）：点开即在内容列渲染主面板（`main` key = `quota-nexus`），实时显示提供商卡片、状态点、额度条、冷却倒计时与预警。
+- **设置 → 额度中枢**：同一份视图的管理入口（`settings.section`）。
+- **工具** `quota_nexus_status`（`section=overview|providers|quota|errors`）。
+- **REST** `/quota-nexus/api/overview`；**SSE** `/quota-nexus/api/events`（快照 + 额度/健康/供应商/预警增量）。
 
 ## 排障
 
