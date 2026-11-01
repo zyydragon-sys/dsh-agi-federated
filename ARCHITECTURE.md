@@ -1,7 +1,7 @@
 # dsh-agi-federated — Architecture Design
 
 **Author:** txcdragon  
-**Version:** 1.3.0  
+**Version:** 1.4.0  
 **Target:** DeepSeek Harness `0.2.1-rc.5` (compatible range `>=0.2.1-rc.5 <0.3.0`)  
 **License:** not declared by the package; choose one before public redistribution.
 
