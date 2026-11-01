@@ -32,6 +32,7 @@
  *   --keep-token       keep the token file after a successful run
  */
 import { readFile, readdir, stat, unlink } from 'node:fs/promises'
+import { spawnSync } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -152,6 +153,16 @@ async function collect(group) {
 }
 
 async function main() {
+  // 不崩盘铁律：发布前必须过 preflight（语法/自检/装配/清单/渲染）。
+  if (!process.argv.includes('--skip-preflight')) {
+    const gate = spawnSync(process.execPath, [path.join(REPO_ROOT, 'scripts', 'preflight.mjs')], { stdio: 'inherit' })
+    if (gate.status !== 0) {
+      console.error('preflight 未通过，发布中止。修好再发，或明确用 --skip-preflight（不推荐）。')
+      process.exit(1)
+    }
+  } else {
+    console.warn('[warn] 已跳过 preflight —— 这次发布不保证可加载。')
+  }
   const options = parseArgs(process.argv.slice(2))
   const names = options.all ? Object.keys(GROUPS) : options.plugin ? [options.plugin] : []
   if (names.length === 0) throw new Error('choose --all or --plugin <name>')
