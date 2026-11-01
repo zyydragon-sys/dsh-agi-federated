@@ -345,7 +345,7 @@ const VENDOR_CATALOG = Object.freeze({
 const CNY_PER_USD_REF = 7.1
 
 /** 与 client.js 的 BUILD_TAG 同步的构建号；概览里下发，供客户端自愈判断。 */
-export const PLUGIN_BUILD = 'v1.22.3'
+export const PLUGIN_BUILD = 'v1.22.4'
 
 const PRICE_SNAPSHOT = Object.freeze({
   source: 'https://api-docs.deepseek.com/quick_start/pricing',
@@ -4018,16 +4018,49 @@ export function apply(ctx, rawConfig) {
   effect(() => runtime.startTimers())
 
   // 3) 本地 REST + SSE 面板（webServer 可选）。
+  //    启动顺序不保证 webServer 先就绪：拿不到就每 2s 重试，直到注册成功或插件卸载。
+  //    之前只取一次，若应用先于 webServer 就绪，REST 就永久缺失 —— 客户端随后全部 404。
   effect(() => {
     if (!config.httpEnabled) return () => {}
-    const webServer = ctx?.get?.('webServer')
-    if (typeof webServer?.register !== 'function') {
-      runtime.warn('web_server_unavailable', 'ctx.webServer 不可用，REST/SSE 面板未注册（Host 状态工具仍可用）')
-      return () => {}
+    let disposed = false
+    let handle = null
+    let timer = null
+    const tryRegister = () => {
+      if (disposed || handle) return
+      const webServer = ctx?.get?.('webServer')
+      if (typeof webServer?.register === 'function') {
+        try {
+          const surface = new HttpSurface({ runtime, config })
+          handle = surface.register(webServer)
+        } catch (error) {
+          runtime.warn('web_server_register_failed', `REST 注册失败：${error?.message ?? error}`)
+        }
+        if (handle) {
+          runtime.warn('web_server_ready', 'REST/SSE 面板已注册')
+        }
+        return
+      }
+      timer ??= setInterval(() => {
+        tryRegister()
+        if (handle && timer) {
+          clearInterval(timer)
+          timer = null
+        }
+      }, 2000)
+      timer.unref?.()
     }
-    const surface = new HttpSurface({ runtime, config })
-    const handle = surface.register(webServer)
-    return () => handle.dispose()
+    tryRegister()
+    return () => {
+      disposed = true
+      if (timer) clearInterval(timer)
+      timer = null
+      try {
+        handle?.dispose?.()
+      } catch {
+        /* 已释放 */
+      }
+      handle = null
+    }
   })
 
   // 4) 对外暴露内存运行时：Cordis 要求先 provide 再 set，否则 set 会拒绝。
