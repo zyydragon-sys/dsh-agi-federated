@@ -121,6 +121,9 @@ export const DEFAULTS = Object.freeze({
   rotationIdleWindowMs: 120000,
   /** 用量导入轮询间隔（越小归属越准，默认 5s）。 */
   usageSyncMs: 5000,
+  /** profile 清单自愈（防外部 PowerShell 改写导致插件整体不加载）。 */
+  profileGuard: true,
+  profileGuardIntervalMs: 30000,
   alertDedupeMs: 600_000,
   alertWebhookUrls: [],
   alertInbox: true,
@@ -234,6 +237,8 @@ export function normalizeConfig(input) {
     rotationIdleOnly: bool(raw.rotationIdleOnly, DEFAULTS.rotationIdleOnly),
     rotationIdleWindowMs: Math.round(num(raw.rotationIdleWindowMs, DEFAULTS.rotationIdleWindowMs, 30_000, 3_600_000)),
     usageSyncMs: Math.round(num(raw.usageSyncMs, DEFAULTS.usageSyncMs, 2_000, 300_000)),
+    profileGuard: bool(raw.profileGuard, DEFAULTS.profileGuard),
+    profileGuardIntervalMs: Math.round(num(raw.profileGuardIntervalMs, DEFAULTS.profileGuardIntervalMs, 5_000, 600_000)),
     alertDedupeMs: Math.round(num(raw.alertDedupeMs, DEFAULTS.alertDedupeMs, 1_000, 86_400_000)),
     alertWebhookUrls: strList(raw.alertWebhookUrls, DEFAULTS.alertWebhookUrls),
     alertInbox: bool(raw.alertInbox, DEFAULTS.alertInbox),
@@ -330,6 +335,12 @@ function build() {
         .min(30_000)
         .default(DEFAULTS.rotationIdleWindowMs)
         .description('空闲判定窗口毫秒数。'),
+      profileGuard: z.boolean().default(true).description('校验并自愈 profile 清单（BOM/乱码/丢失 bundle）。'),
+      profileGuardIntervalMs: z
+        .number()
+        .min(5_000)
+        .default(DEFAULTS.profileGuardIntervalMs)
+        .description('profile 自愈检查间隔毫秒数。'),
       usageSyncMs: z
         .number()
         .min(2_000)
