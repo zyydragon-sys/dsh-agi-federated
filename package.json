@@ -1,6 +1,6 @@
 {
   "name": "dsh-agi-federated",
-  "version": "1.5.2",
+  "version": "1.6.0",
   "private": true,
   "author": "txcdragon",
   "repository": {
@@ -38,7 +38,9 @@
     "ARCHITECTURE.md",
     "CHANGELOG.md",
     "MAINTENANCE.md",
-    "EVOLUTION.md"
+    "EVOLUTION.md",
+    "plugins/**",
+    "scripts/**"
   ],
   "icon": "./icon.svg",
   "engines": {
