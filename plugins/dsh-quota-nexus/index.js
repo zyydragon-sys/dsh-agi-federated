@@ -150,6 +150,33 @@ const parseRateLimit = (headers) => {
   }
 }
 
+/** 探测响应里值得回传的额度头；只保留这些键，避免把整个响应头写进状态。 */
+const QUOTA_HEADER_NAMES = [
+  'x-ratelimit-remaining-requests',
+  'x-ratelimit-limit-requests',
+  'x-ratelimit-remaining-tokens',
+  'x-ratelimit-limit-tokens',
+  'x-ratelimit-reset-requests',
+  'x-ratelimit-reset-tokens',
+  'x-ratelimit-reset',
+  'anthropic-ratelimit-requests-remaining',
+  'anthropic-ratelimit-requests-limit',
+  'anthropic-ratelimit-tokens-remaining',
+  'anthropic-ratelimit-tokens-limit',
+  'anthropic-ratelimit-requests-reset',
+  'anthropic-ratelimit-tokens-reset',
+  'retry-after',
+]
+
+const captureQuotaHeaders = (headers) => {
+  const out = {}
+  for (const name of QUOTA_HEADER_NAMES) {
+    const value = headerGet(headers, name)
+    if (value !== undefined && value !== null && value !== '') out[name] = String(value)
+  }
+  return out
+}
+
 /** 剩余比例（0..1）；无数据返回 undefined，绝不猜一个“看起来能用”的数字。 */
 const remainingRatio = (part) => {
   if (!part || part.remaining === undefined || !part.limit) return undefined
@@ -215,6 +242,9 @@ const VENDOR_CATALOG = Object.freeze({
     baseUrl: 'https://api.deepseek.com/v1',
     models: ['deepseek-chat', 'deepseek-reasoner'],
     keyEnv: 'DEEPSEEK_API_KEY',
+    // 官方余额接口：GET /user/balance（Bearer），响应 balance_infos[].total_balance。
+    // 文档：https://api-docs.deepseek.com/api/get-user-balance/
+    balance: { baseUrl: 'https://api.deepseek.com', path: '/user/balance' },
   },
   openai: {
     label: 'OpenAI',
@@ -298,9 +328,28 @@ const VENDOR_CATALOG = Object.freeze({
 
 const vendorOf = (provider) => VENDOR_CATALOG[provider?.vendorId] ?? VENDOR_CATALOG.custom
 
+/** 支持的协议族；provider 上可显式覆盖（同一家厂商的 OpenAI 端点与 Anthropic 端点并存）。 */
+const PROTOCOL_KINDS = ['openai-compatible', 'anthropic-messages', 'gemini']
+
+/**
+ * 按 baseUrl 形状推断协议：内置厂商默认是 OpenAI 兼容，但如果用户把 baseUrl 指到
+ * `/anthropic` 这类 Anthropic Messages 端点，鉴权头必须换成 x-api-key。
+ */
+const inferProtocol = (provider) => {
+  const vendorKind = vendorOf(provider).kind
+  const baseUrl = String(provider?.baseUrl ?? '')
+  if (vendorKind === 'openai-compatible' && /\/anthropic(?:\/|$)/i.test(baseUrl)) return 'anthropic-messages'
+  return vendorKind
+}
+
+const kindOf = (provider) =>
+  PROTOCOL_KINDS.includes(provider?.protocol) ? provider.protocol : inferProtocol(provider)
+
+const protocolSource = (provider) => (PROTOCOL_KINDS.includes(provider?.protocol) ? 'configured' : 'inferred')
+
 const authHeaders = (provider) => {
   const secret = provider?.credential?.secret
-  const kind = vendorOf(provider).kind
+  const kind = kindOf(provider)
   if (!secret) return {}
   if (kind === 'anthropic-messages') return { 'x-api-key': secret, 'anthropic-version': '2023-06-01' }
   if (kind === 'gemini') return { 'x-goog-api-key': secret }
@@ -309,15 +358,61 @@ const authHeaders = (provider) => {
 
 const probeUrl = (provider) => {
   const vendor = vendorOf(provider)
-  const base = provider.baseUrl || vendor.baseUrl
-  const kind = vendor.kind
+  const kind = kindOf(provider)
+  // 用户常把完整端点（…/v1/messages）贴进来：探测前退回到 API 根。
+  const base = String(provider.baseUrl || vendor.baseUrl || '').replace(/\/messages\/?$/i, '')
   if (kind === 'gemini') return joinUrl(base, `/models?key=${encodeURIComponent(provider?.credential?.secret ?? '')}`)
-  if (kind === 'anthropic-messages') return joinUrl(base, '/models')
   return joinUrl(base, '/models')
 }
 
 /** 该供应商是否必须由用户显式提供 baseUrl（目录里没有默认端点）。 */
 const requiresBaseUrl = (vendorId) => !VENDOR_CATALOG[vendorId]?.baseUrl
+
+/** 余额接口 URL：provider 可显式覆盖，否则用厂商目录里的官方余额端点。 */
+const balanceUrlOf = (record) => {
+  if (!record) return null
+  if (typeof record.balanceUrl === 'string' && record.balanceUrl.trim()) return record.balanceUrl.trim()
+  const vendor = vendorOf(record)
+  const config = vendor.balance
+  if (!config?.path) return null
+  return joinUrl(config.baseUrl || record.balanceBaseUrl || vendor.baseUrl, config.path)
+}
+
+/** 解析余额响应：优先 DeepSeek 的 balance_infos[]，其次常见的扁平字段。 */
+const parseBalance = (payload) => {
+  if (!payload || typeof payload !== 'object') return null
+  const toNumber = (value) => {
+    const n = typeof value === 'number' ? value : Number.parseFloat(String(value ?? ''))
+    return Number.isFinite(n) ? n : undefined
+  }
+  const infos = Array.isArray(payload.balance_infos) ? payload.balance_infos : null
+  if (infos && infos.length) {
+    const info = infos.find((entry) => entry && toNumber(entry.total_balance) !== undefined) ?? infos[0]
+    const amount = toNumber(info?.total_balance)
+    if (amount === undefined) return null
+    return {
+      amount,
+      currency: typeof info?.currency === 'string' ? info.currency : null,
+      granted: toNumber(info?.granted_balance) ?? null,
+      toppedUp: toNumber(info?.topped_up_balance) ?? null,
+      available: payload.is_available === true,
+      field: 'balance_infos.total_balance',
+    }
+  }
+  const candidates = [
+    ['balance', payload.balance],
+    ['total_balance', payload.total_balance],
+    ['data.balance', payload?.data?.balance],
+    ['data.total_balance', payload?.data?.total_balance],
+  ]
+  for (const [field, value] of candidates) {
+    const amount = toNumber(value)
+    if (amount !== undefined) {
+      return { amount, currency: null, granted: null, toppedUp: null, available: true, field }
+    }
+  }
+  return null
+}
 
 /* ------------------------------------------------------------------ *
  * 原子持久化
@@ -1050,6 +1145,7 @@ class QuotaNexusRuntime {
       rt.lastProbeWall = Number(saved.lastProbeWall ?? 0)
       rt.lastFailureStatus = Number(saved.lastFailureStatus ?? 0)
       if (saved.quota && typeof saved.quota === 'object') rt.quota = { ...rt.quota, ...saved.quota }
+      if (saved.balance && typeof saved.balance === 'object') rt.balance = saved.balance
       const remaining = Number(saved.cooldownRemainingMs ?? 0)
       if (remaining > 0 && Number.isFinite(remaining)) {
         rt.cooldownUntilMono = mono() + remaining
@@ -1084,10 +1180,13 @@ class QuotaNexusRuntime {
       lastUsedWall: 0,
       lastSuccessWall: 0,
       lastProbeWall: 0,
+      lastProbeStatus: null,
+      lastProbeHttp: 0,
       lastFailureWall: 0,
       lastFailureStatus: 0,
       lastAuthFailureWall: 0,
       inflight: 0,
+      balance: null,
       quota: {
         remainingRequests: null,
         limitRequests: null,
@@ -1282,6 +1381,7 @@ class QuotaNexusRuntime {
         lastProbeWall: rt.lastProbeWall,
         lastFailureStatus: rt.lastFailureStatus,
         quota: rt.quota,
+        balance: rt.balance,
         cooldownRemainingMs: Math.max(0, Math.round(rt.cooldownUntilMono - mono())),
         cooldownKind: rt.cooldownKind,
       }
@@ -1311,7 +1411,9 @@ class QuotaNexusRuntime {
       id: record.id,
       vendorId: record.vendorId,
       label: record.label,
-      kind: vendorOf(record).kind,
+      kind: kindOf(record),
+      protocol: kindOf(record),
+      protocolSource: protocolSource(record),
       baseUrl: record.baseUrl,
       models: Array.isArray(record.models) ? record.models : [],
       enabled: record.enabled !== false,
@@ -1326,6 +1428,12 @@ class QuotaNexusRuntime {
       cooldownMs: rt ? Math.max(0, Math.round(rt.cooldownUntilMono - mono())) : 0,
       needsRelogin: Boolean(rt?.needsRelogin),
       quotaRatio: rt?.quota?.ratio ?? null,
+      quotaObservedAt: rt?.quota?.observedAt ?? null,
+      balance: rt?.balance ?? null,
+      balanceUrl: balanceUrlOf(record),
+      lastProbeAt: rt?.lastProbeWall ? new Date(rt.lastProbeWall).toISOString() : null,
+      lastProbeStatus: rt?.lastProbeStatus ?? null,
+      lastProbeHttp: rt?.lastProbeHttp ?? 0,
       createdAt: record.createdAt ?? null,
     }
   }
@@ -1384,6 +1492,10 @@ class QuotaNexusRuntime {
       source: input?.source ?? 'manual',
       createdAt: new Date().toISOString(),
       fingerprint,
+      ...(PROTOCOL_KINDS.includes(input?.protocol) ? { protocol: input.protocol } : {}),
+      ...(typeof input?.balanceUrl === 'string' && input.balanceUrl.trim()
+        ? { balanceUrl: input.balanceUrl.trim() }
+        : {}),
       credential: secret
         ? { type: input?.credentialType === 'oauth' ? 'oauth' : 'api-key', secret, masked: maskSecret(secret) }
         : { type: 'none', secret: '', masked: '' },
@@ -1405,6 +1517,9 @@ class QuotaNexusRuntime {
     this.providers.set(record.id, record)
     this.rebuildAccounts()
     await this.saveProviders()
+    // 新增后立即拉一次官方余额（失败只记 warning，不影响状态）。
+    const account = this.scheduler.accounts.get(record.id)
+    if (account) void this.fetchBalance(account)
     this.publish('providers', { action: 'add', id: record.id })
     return { ok: true, provider: this.providerView(record) }
   }
@@ -1418,6 +1533,12 @@ class QuotaNexusRuntime {
     if (Array.isArray(patch?.models)) next.models = patch.models.map(String)
     if (patch?.priority !== undefined && Number.isFinite(Number(patch.priority))) next.priority = Number(patch.priority)
     if (typeof patch?.enabled === 'boolean') next.enabled = patch.enabled
+    if (PROTOCOL_KINDS.includes(patch?.protocol)) next.protocol = patch.protocol
+    if (patch?.protocol === null || patch?.protocol === '') delete next.protocol
+    if (typeof patch?.balanceUrl === 'string') {
+      if (patch.balanceUrl.trim()) next.balanceUrl = patch.balanceUrl.trim()
+      else delete next.balanceUrl
+    }
     if (typeof patch?.apiKey === 'string' && patch.apiKey.trim()) {
       const secret = patch.apiKey.trim()
       next.credential = { type: record.credential?.type ?? 'api-key', secret, masked: maskSecret(secret) }
@@ -1433,6 +1554,8 @@ class QuotaNexusRuntime {
     }
     this.rebuildAccounts()
     await this.saveProviders()
+    const updated = this.scheduler.accounts.get(id)
+    if (updated) void this.fetchBalance(updated)
     this.publish('providers', { action: 'update', id })
     return { ok: true, provider: this.providerView(next) }
   }
@@ -1460,8 +1583,9 @@ class QuotaNexusRuntime {
         signal: timeoutSignal(this.config.probeTimeoutMs),
       })
       const latencyMs = Math.round(mono() - started)
+      const headers = captureQuotaHeaders(response.headers)
       if (response.ok) {
-        return { ok: true, status: 'connected', httpStatus: response.status, latencyMs }
+        return { ok: true, status: 'connected', httpStatus: response.status, latencyMs, headers }
       }
       // 中转/自建端点常常没有 /models：404/405 说明端点可达，只是没有探测接口。
       if (response.status === 404 || response.status === 405) {
@@ -1470,6 +1594,7 @@ class QuotaNexusRuntime {
           status: 'reachable',
           httpStatus: response.status,
           latencyMs,
+          headers,
           message: `${vendor.label} 可达，但未提供 /models 探测接口（HTTP ${response.status}）`,
         }
       }
@@ -1478,6 +1603,7 @@ class QuotaNexusRuntime {
         status: response.status === 401 || response.status === 403 ? 'unauthenticated' : 'error',
         httpStatus: response.status,
         latencyMs,
+        headers,
         message: `${vendor.label} 校验失败：HTTP ${response.status}`,
       }
     } catch (error) {
@@ -1496,17 +1622,80 @@ class QuotaNexusRuntime {
     const rt = this.scheduler.accounts.get(id)
     if (!rt) return { ok: false, code: 'quota_nexus_not_found', message: `未找到账号 ${id}` }
     const result = await this.probeRecord(rt.record)
+    const { headers, ...report } = result
     rt.lastProbeWall = wallNow()
+    rt.lastProbeStatus = result.status
+    rt.lastProbeHttp = result.httpStatus ?? 0
     if (result.ok) {
       this.scheduler.markHealthy(rt)
       rt.health = 'connected'
-      this.publish('probe', { account: maskAccount(rt.record), status: 'connected', latencyMs: result.latencyMs })
-      return { ok: true, account: maskAccount(rt.record), ...result }
+      // 探测响应同样可能带额度头：先恢复健康，再回填额度，避免被健康重置覆盖。
+      const observed = headers && Object.keys(headers).length
+        ? this.ingestHeaders(rt, headers, { source: 'probe' })
+        : null
+      const balance = await this.fetchBalance(rt)
+      this.publish('probe', {
+        account: maskAccount(rt.record),
+        status: 'connected',
+        latencyMs: result.latencyMs,
+        quotaObserved: Boolean(observed),
+        balance: balance?.amount ?? null,
+      })
+      return {
+        ok: true,
+        account: maskAccount(rt.record),
+        ...report,
+        quota: { ...rt.quota },
+        balance: balance ?? null,
+      }
     }
     rt.health = result.status
     this.scheduler.penalize(rt, result.httpStatus, { network: result.status === 'unreachable' })
+    if (headers && Object.keys(headers).length) this.ingestHeaders(rt, headers, { source: 'probe' })
+    await this.fetchBalance(rt)
     this.publish('probe', { account: maskAccount(rt.record), status: result.status, latencyMs: result.latencyMs })
-    return { ok: false, account: maskAccount(rt.record), ...result }
+    return { ok: false, account: maskAccount(rt.record), ...report }
+  }
+
+  /**
+   * 官方余额接口（目前 DeepSeek 已确认：GET /user/balance）。
+   * 失败只记录 warning，不影响健康判定——余额接口挂掉不代表推理不可用。
+   */
+  async fetchBalance(rt) {
+    const url = balanceUrlOf(rt.record)
+    if (!url) return null
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: { accept: 'application/json', ...authHeaders(rt.record) },
+        signal: timeoutSignal(this.config.probeTimeoutMs),
+      })
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          this.warn('balance_unauthorized', `${maskAccount(rt.record)} 余额接口拒绝凭据（HTTP ${response.status}）`)
+        }
+        return null
+      }
+      const parsed = parseBalance(await response.json())
+      if (!parsed) {
+        this.warn('balance_unparsed', `${maskAccount(rt.record)} 余额响应无法解析（来源 ${url}）`)
+        return null
+      }
+      rt.balance = { ...parsed, observedAt: new Date().toISOString(), url }
+      this.publish('balance', { account: maskAccount(rt.record), amount: parsed.amount, currency: parsed.currency })
+      const floor = Number(this.config.alertBalanceFloor)
+      if (floor > 0 && parsed.amount !== null && parsed.amount <= floor) {
+        this.alert(`balance_low:${rt.id}`, {
+          level: 'error',
+          title: `余额低于阈值：${maskAccount(rt.record)}`,
+          detail: `当前 ${parsed.currency ?? ''} ${parsed.amount} ≤ 阈值 ${floor}。`,
+        })
+      }
+      return rt.balance
+    } catch (error) {
+      this.warn('balance_failed', `${maskAccount(rt.record)} 余额查询失败：${error?.message ?? error}`)
+      return null
+    }
   }
 
   async probeAll() {
