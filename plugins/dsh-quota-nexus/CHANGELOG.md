@@ -3,6 +3,13 @@
 The nested bundle keeps its own version, independent of the root
 `dsh-agi-federated` bundle (`plugins/dsh-quota-nexus/package.json`).
 
+## 1.11.1 — 2026-11-01
+
+- UI: provider cards no longer print “尚未观测到额度响应头 …” or the probe HTTP code
+  when a vendor reports no quota headers. The quota bar and its text are rendered
+  only when a real ratio exists, so cards stay compact; probe diagnostics remain
+  available through the header chip drill-down.
+
 ## 1.11.0 — 2026-11-01
 
 - Per-model trend chart (console “小时趋势” template): `GET /api/usage` now returns
