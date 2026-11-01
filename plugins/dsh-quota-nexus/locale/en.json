@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Quota Nexus",
+    "description": "Multi-provider quota pool: card-list provider registry, O(1) lease scheduling with 8-account budget, breaker/cool-down, write-behind usage ledger and 0s SSE quota telemetry."
+  }
+}
