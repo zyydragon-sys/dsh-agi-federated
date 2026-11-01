@@ -1373,6 +1373,8 @@ class QuotaNexusRuntime {
     // 模型轮转状态：task -> 游标；task:provider -> 最近使用时间（balanced 用）。
     this.modelCursor = new Map()
     this.modelRotation = { enabled: false, intervalMs: 300000, order: [], cursor: 0, lastAppliedAt: null, lastError: null, timer: null }
+    /** 计价展示币种：官方价目表是 USD，内部永远保留 USD，显示层按汇率换算。 */
+    this.currency = { code: 'CNY', usdToCnyRate: 7.1, updatedAt: new Date().toISOString(), source: 'manual' }
     this.modelLastUsed = new Map()
     this.inbox = []
     this.lastPublishWall = 0
@@ -1408,6 +1410,14 @@ class QuotaNexusRuntime {
       if (state && state.rotation && typeof state.rotation === 'object') {
         if (typeof state.rotation.enabled === 'boolean') this.modelRotation.enabled = state.rotation.enabled
         if (Number.isFinite(Number(state.rotation.intervalMs))) this.modelRotation.intervalMs = Math.max(60000, Math.round(Number(state.rotation.intervalMs)))
+      }
+      if (state && state.currency && typeof state.currency === 'object') {
+        if (state.currency.code === 'CNY' || state.currency.code === 'USD') this.currency.code = state.currency.code
+        if (Number.isFinite(Number(state.currency.usdToCnyRate)) && Number(state.currency.usdToCnyRate) > 0) {
+          this.currency.usdToCnyRate = Number(state.currency.usdToCnyRate)
+          this.currency.updatedAt = state.currency.updatedAt ?? new Date().toISOString()
+          this.currency.source = state.currency.source ?? 'restored'
+        }
       }
       const alerts = await this.pool.readJson(FILE.alerts, { version: 1, delivered: {} })
       for (const key of Object.keys(alerts?.delivered ?? {})) this.alertDedupe.set(key, alerts.delivered[key])
@@ -1690,7 +1700,7 @@ class QuotaNexusRuntime {
         cooldownKind: rt.cooldownKind,
       }
     }
-    await this.pool.writeJson(FILE.state, { version: 1, savedAt: new Date().toISOString(), accounts, rotation: { enabled: this.modelRotation.enabled, intervalMs: this.modelRotation.intervalMs } })
+    await this.pool.writeJson(FILE.state, { version: 1, savedAt: new Date().toISOString(), accounts, rotation: { enabled: this.modelRotation.enabled, intervalMs: this.modelRotation.intervalMs }, currency: { ...this.currency } })
   }
 
   /* ---------------- 供应商 CRUD ---------------- */
@@ -2099,7 +2109,7 @@ class QuotaNexusRuntime {
       return { ok: false, code: 'quota_nexus_no_default_model', message: 'agentDefaultModel 不可用，无法切换默认模型' }
     }
     const { pool } = await this.rotationPlan()
-    if (!plan.length) return { ok: false, code: 'quota_nexus_no_llm_routes', message: '没有可用的 llm 路由（请先在 设置 → 模型 里添加供应商）' }
+    if (!pool.length) return { ok: false, code: 'quota_nexus_no_llm_routes', message: '没有可用的 llm 路由（请先在 设置 → 模型 里添加供应商）' }
     const current = agentDefaultModel.currentSelection?.() ?? null
     const index = pool.findIndex((route) => route.provider === current?.provider && route.model === current?.model)
     const next = pool[(index + 1) % pool.length]
@@ -2118,6 +2128,20 @@ class QuotaNexusRuntime {
     }
   }
 
+  /** 持久化轮转与货币设置到 state.json（重启后保持用户选择）。 */
+  async persistRotation() {
+    if (!this.pool.ready) return
+    try {
+      const state = await this.pool.readJson(FILE.state, { version: 1, savedAt: null, accounts: [] })
+      state.rotation = { enabled: this.modelRotation.enabled, intervalMs: this.modelRotation.intervalMs }
+      state.currency = { ...this.currency }
+      state.savedAt = new Date().toISOString()
+      await this.pool.writeJson(FILE.state, state)
+    } catch {
+      /* 持久化失败不影响运行 */
+    }
+  }
+
   /** 开关自动轮转；intervalMs 最小 60s。 */
   async setRotation({ enabled, intervalMs }) {
     if (typeof intervalMs === 'number' && Number.isFinite(intervalMs)) {
@@ -2130,8 +2154,22 @@ class QuotaNexusRuntime {
       timer.unref?.()
       this.modelRotation.timer = timer
     }
+    await this.persistRotation()
     const { plan, routes } = await this.rotationPlan()
     return { ok: true, enabled: this.modelRotation.enabled, intervalMs: this.modelRotation.intervalMs, plan, routes }
+  }
+
+  /** USD → CNY 换算：币种、汇率都在这里唯一收口，界面只消费换算后的数字。 */
+  money(valueUsd) {
+    const rate = Number(this.currency.usdToCnyRate) || 0
+    const amount = (Number(valueUsd) || 0) * rate
+    return {
+      currency: this.currency.code,
+      amount: Math.round(amount * 10000) / 10000,
+      text: amount > 0 ? amount.toFixed(4) : '0',
+      usd: Math.round((Number(valueUsd) || 0) * 1_000_000) / 1_000_000,
+      rate,
+    }
   }
 
   /** 计费时段视图：仅对有官方价格快照的厂商（DeepSeek）给出高峰/空闲与切换倒计时。 */
@@ -2680,8 +2718,11 @@ class QuotaNexusRuntime {
           peakDayTokens: dayValues.length ? Math.max(...dayValues) : 0,
           peakDayText: scale(dayValues.length ? Math.max(...dayValues) : 0),
           costUsd: Math.round(cost * 1_000_000) / 1_000_000,
-          costText: cost > 0 ? cost.toFixed(4) : '0',
-          costCurrency: 'USD',
+          costText: this.money(cost).text,
+          costCurrency: this.currency.code,
+          costAmount: this.money(cost).amount,
+          costCny: this.money(cost).amount,
+          usdToCnyRate: this.currency.usdToCnyRate,
           avgTokens: bucketCount ? Math.round(tokens / bucketCount) : 0,
           avgTokensText: scale(bucketCount ? Math.round(tokens / bucketCount) : 0),
           inputTokens,
@@ -2691,10 +2732,27 @@ class QuotaNexusRuntime {
         },
         models: [...models.values()].sort((a, b) => b.tokens - a.tokens),
         series: [...seriesMap.values()].sort((a, b) => b.tokens - a.tokens).slice(0, 6),
-        costByModel: [...modelCosts.values()].sort((a, b) => b.costUsd - a.costUsd),
-        endpoints: [...endpointStats.values()].sort((a, b) => b.tokens - a.tokens).slice(0, 8),
+        costByModel: [...modelCosts.values()]
+          .map((entry) => ({
+            ...entry,
+            costCny: this.money(entry.costUsd).amount,
+            listCostCny: this.money(entry.listCostUsd || 0).amount,
+          }))
+          .sort((a, b) => b.costUsd - a.costUsd),
+        endpoints: [...endpointStats.values()]
+          .map((entry) => ({
+            ...entry,
+            costCny: this.money(entry.costUsd).amount,
+            listCostCny: this.money(entry.listCostUsd || 0).amount,
+          }))
+          .sort((a, b) => b.tokens - a.tokens)
+          .slice(0, 8),
         sessions: [...sessionStats.values()]
-          .map((entry) => ({ ...entry, costUsd: Math.round(entry.costUsd * 1_000_000) / 1_000_000 }))
+          .map((entry) => ({
+            ...entry,
+            costUsd: Math.round(entry.costUsd * 1_000_000) / 1_000_000,
+            costCny: this.money(entry.costUsd).amount,
+          }))
           .sort((a, b) => b.tokens - a.tokens)
           .slice(0, 20),
         peakBucketTokens: Math.max(1, ...buckets.map((bucket) => bucket.tokens)),
@@ -2710,6 +2768,7 @@ class QuotaNexusRuntime {
       to: new Date(now).toISOString(),
       bucketMs,
       pricing: { source: PRICE_SNAPSHOT.source, capturedAt: PRICE_SNAPSHOT.capturedAt, unit: PRICE_SNAPSHOT.unit },
+      currency: { ...this.currency },
       providers,
     }
   }
@@ -3164,6 +3223,28 @@ class HttpSurface {
           providerId: url.searchParams.get('providerId') ?? undefined,
         }),
       )
+    })
+
+    add('GET', '/api/currency', async (req, res) => {
+      if (!this.guard(req, res)) return
+      writeJson(res, 200, { ok: true, currency: { ...this.runtime.currency }, pricing: { source: PRICE_SNAPSHOT.source, capturedAt: PRICE_SNAPSHOT.capturedAt } })
+    })
+
+    add('POST', '/api/currency', async (req, res) => {
+      if (!this.guard(req, res)) return
+      try {
+        const body = await readJsonBody(req)
+        if (body?.code === 'CNY' || body?.code === 'USD') this.runtime.currency.code = body.code
+        if (Number.isFinite(Number(body?.usdToCnyRate)) && Number(body.usdToCnyRate) > 0) {
+          this.runtime.currency.usdToCnyRate = Number(body.usdToCnyRate)
+          this.runtime.currency.updatedAt = new Date().toISOString()
+          this.runtime.currency.source = 'manual'
+        }
+        await this.runtime.persistRotation()
+        writeJson(res, 200, { ok: true, currency: { ...this.runtime.currency } })
+      } catch (error) {
+        writeJson(res, 400, { ok: false, code: 'quota_nexus_bad_request', message: error?.message ?? String(error) })
+      }
     })
 
     add('GET', '/api/rotation', async (req, res) => {
