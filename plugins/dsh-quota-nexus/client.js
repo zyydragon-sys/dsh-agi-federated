@@ -1,6 +1,6 @@
 /**
  * dsh-quota-nexus — Client half (Web)。
- * build: 1.11.1 (compact-cards)
+ * build: 1.12.0 (pricing+peak)
  *
  * 在“设置 → Quota Nexus”里渲染卡片列表式供应商管理：
  *   每行 = 提供商名称 + 状态点（已连接/离线/异常）+ 右侧“编辑”“删除”；
@@ -130,6 +130,11 @@ window.__ModuleLoader__.load({
         'kpi.balanceHint': '各供应商官方余额之和',
         'kpi.activeDays': '活跃天数',
         'kpi.activeDaysHint': '本周期有调用的天数',
+        'kpi.cost': '消费（估算）',
+        'kpi.costHint': '按官方价格快照 × 真实用量估算',
+        'peak': '高峰时段',
+        'offpeak': '空闲时段',
+        'switchIn': '切换倒计时',
         'calendar': '每周 Token 热力',
         'calendarHint': '按 ISO 周聚合（近 6 个月）',
         'trend': '小时趋势',
@@ -256,6 +261,11 @@ window.__ModuleLoader__.load({
         'kpi.balanceHint': 'sum of official vendor balances',
         'kpi.activeDays': 'Active days',
         'kpi.activeDaysHint': 'days with at least one call',
+        'kpi.cost': 'Cost (est.)',
+        'kpi.costHint': 'official price snapshot × real usage',
+        'peak': 'Peak hours',
+        'offpeak': 'Off-peak',
+        'switchIn': 'changes in',
         'calendar': 'Weekly token heat',
         'calendarHint': 'grouped by ISO week (last 6 months)',
         'trend': 'Hourly trend',
@@ -610,6 +620,28 @@ window.__ModuleLoader__.load({
           windowsBlock,
           h('div', { style: style.meta }, modelsText),
           autoText ? h('div', { style: { ...style.meta, color: 'var(--dsw-alias-brand-primary)' } }, autoText) : null,
+          provider.billing
+            ? h(
+                'div',
+                {
+                  style: {
+                    ...style.meta,
+                    color:
+                      provider.billing.phase === 'peak'
+                        ? 'var(--dsw-alias-state-warn-primary)'
+                        : 'var(--dsw-alias-state-success-primary)',
+                  },
+                  title: provider.billing.note ?? '',
+                },
+                `${provider.billing.phase === 'peak' ? '●' : '○'} ${
+                  provider.billing.phase === 'peak' ? t('peak') : t('offpeak')
+                }${
+                  provider.billing.nextChangeAt
+                    ? ` · ${t('switchIn')} ${fmtDuration(new Date(provider.billing.nextChangeAt).getTime() - now)}`
+                    : ''
+                }`,
+              )
+            : null,
           provider.balance?.amount !== null && provider.balance?.amount !== undefined
             ? h(
                 'div',
@@ -901,6 +933,8 @@ window.__ModuleLoader__.load({
       )
       const balanceCurrencies = [...new Set(providers.map((provider) => provider.balance?.currency).filter(Boolean))]
       const balanceText = providers.length ? `${balanceCurrencies.join('/') || '—'} ${balanceSum.toFixed(2)}` : '—'
+      const costUsd = usageRows.reduce((sum, row) => sum + (Number(row.totals.costUsd) || 0), 0)
+      const costText = `$${costUsd.toFixed(4)}`
       const fmtTokens = (value) =>
         value >= 1e9 ? (value / 1e9).toFixed(2) + 'B' : value >= 1e6 ? (value / 1e6).toFixed(2) + 'M' : value >= 1e3 ? (value / 1e3).toFixed(1) + 'K' : String(value)
 
@@ -1007,7 +1041,7 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 } },
-          ...[t('kpi.tokens'), t('kpi.requests'), t('kpi.balance'), t('kpi.activeDays')].map((label, index) =>
+          ...[t('kpi.tokens'), t('kpi.requests'), t('kpi.cost'), t('kpi.balance'), t('kpi.activeDays')].map((label, index) =>
             h(
               'div',
               {
@@ -1015,8 +1049,8 @@ window.__ModuleLoader__.load({
                 style: { border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 10, background: 'var(--dsw-alias-bg-layer-1)', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 2 },
               },
               h('div', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)' } }, label),
-              h('div', { style: { fontSize: 18, fontWeight: 700 } }, [fmtTokens(totalTokens), String(totalRequests), balanceText, String(activeDays)][index]),
-              h('div', { style: style.meta }, [t('kpi.tokensHint'), t('kpi.requestsHint'), t('kpi.balanceHint'), t('kpi.activeDaysHint')][index]),
+              h('div', { style: { fontSize: 18, fontWeight: 700 } }, [fmtTokens(totalTokens), String(totalRequests), costText, balanceText, String(activeDays)][index]),
+              h('div', { style: style.meta }, [t('kpi.tokensHint'), t('kpi.requestsHint'), t('kpi.costHint'), t('kpi.balanceHint'), t('kpi.activeDaysHint')][index]),
             ),
           ),
         ),
