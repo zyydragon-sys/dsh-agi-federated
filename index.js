@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { CONFIG_VERSION, DEFAULT_CONFIG, normalizeConfig, validateConfig } from './schemas/config.js'
 
 const PLUGIN_ID = 'dsh-agi-federated'
-const PLUGIN_VERSION = '1.4.0'
+const PLUGIN_VERSION = '1.5.0'
 const MEMORY_FILE = 'memory.json'
 const EVIDENCE_FILE = 'evidence.json'
 const USAGE_FILE = 'usage.json'
@@ -2107,6 +2107,8 @@ class AgiFederated {
     this.memory = {
       sessions: new Map(),
       clues: new Map(),
+      bank: new Map(),
+      projects: new Map(),
       lastQuery: new Map(),
       revision: 0,
     }
@@ -2203,6 +2205,34 @@ class AgiFederated {
           }
         }
       }
+      if (Array.isArray(data.bank)) {
+        for (const item of data.bank.slice(-500)) {
+          if (!item || typeof item !== 'object' || typeof item.id !== 'string') continue
+          const record = {
+            id: item.id,
+            projectId: asString(item.projectId, 'global'),
+            projectPath: asString(item.projectPath, ''),
+            kind: asString(item.kind, 'fact'),
+            title: asString(item.title).slice(0, 160),
+            summary: asString(item.summary).slice(0, 500),
+            content: asString(item.content).slice(0, 4000),
+            tags: Array.isArray(item.tags) ? item.tags.filter((tag) => typeof tag === 'string').slice(0, 24) : [],
+            keywords: Array.isArray(item.keywords) ? item.keywords.filter((word) => typeof word === 'string').slice(0, 32) : [],
+            seedTokens: Array.isArray(item.seedTokens) ? item.seedTokens.filter((word) => typeof word === 'string').slice(0, 40) : [],
+            anchors: Array.isArray(item.anchors) ? item.anchors.slice(0, 32) : [],
+            importance: Math.max(1, Math.min(10, Math.trunc(finiteNumber(item.importance, 5)))),
+            at: Math.max(0, Math.trunc(finiteNumber(item.at, 0))),
+            sourceSession: asString(item.sourceSession, ''),
+            source: asString(item.source, 'manual'),
+          }
+          if (record.title || record.summary) this.memory.bank.set(record.id, record)
+        }
+        for (const item of this.memory.bank.values()) {
+          if (item.projectId && item.projectId !== 'global') {
+            this.memory.projects.set(item.projectId, { path: item.projectPath, updatedAt: item.at })
+          }
+        }
+      }
       this.memory.revision = Math.max(1, Math.trunc(finiteNumber(data.revision, 1)))
     } catch (error) {
       this.log.warn(`memory load failed: ${error instanceof Error ? error.message : String(error)}`)
@@ -2245,11 +2275,16 @@ class AgiFederated {
       const sessions = {}
       for (const [sid, records] of this.memory.sessions) sessions[sid] = records.slice(-64)
       const clues = [...this.memory.clues.values()].slice(-this.config.memory.clueMaxItems)
+      const bank = [...this.memory.bank.values()]
+        .sort((left, right) => right.importance - left.importance || right.at - left.at)
+        .slice(0, 500)
       await this.store.writeJson(MEMORY_FILE, {
         version: 1,
         revision: this.memory.revision,
         sessions,
         clues,
+        bank,
+        projects: [...this.memory.projects.entries()].slice(-100),
       })
     } catch (error) {
       this.log.warn(`memory save failed: ${error instanceof Error ? error.message : String(error)}`)
@@ -2589,6 +2624,129 @@ class AgiFederated {
     }
   }
 
+  projectPathFor(sid) {
+    try {
+      const session = this.ctx?.get?.('sessions')?.get?.(sid)
+      const working = this.ctx?.get?.('workingDirectory')
+      return asString(session?.header?.cwd) || asString(working?.get?.(session)) || ''
+    } catch {
+      return ''
+    }
+  }
+
+  projectIdFor(pathValue) {
+    const projectPath = asString(pathValue).trim()
+    return projectPath ? `project:${shortHash(projectPath, 16)}` : 'global'
+  }
+
+  rememberBank({ sid, projectPath, title, content, kind = 'fact', tags = [], importance = 6, source = 'manual' }) {
+    const project = this.projectIdFor(projectPath)
+    const cleanTitle = summarizeText(redactSecrets(asString(title)), 140).trim()
+    const cleanContent = redactSecrets(asString(content)).slice(0, 4000)
+    if (!cleanTitle && !cleanContent) return null
+    const resolvedTitle = cleanTitle || summarizeText(cleanContent, 100)
+    const id = `b-${shortHash(`${project}\0${resolvedTitle}\0${cleanContent}`, 20)}`
+    const existing = this.memory.bank.get(id)
+    if (existing) {
+      existing.at = Date.now()
+      existing.importance = Math.max(existing.importance, importance)
+      existing.tags = [...new Set([...(existing.tags || []), ...tags])].slice(0, 24)
+      this.memory.revision += 1
+      this.hotCache.clear()
+      this.scheduleMemorySave()
+      return existing
+    }
+    const keywordText = `${resolvedTitle} ${cleanContent} ${tags.join(' ')}`
+    const record = {
+      id,
+      projectId: project,
+      projectPath: asString(projectPath),
+      kind: asString(kind, 'fact'),
+      title: resolvedTitle,
+      summary: summarizeText(cleanContent || resolvedTitle, 260),
+      content: cleanContent,
+      tags: [...new Set(tags.map((tag) => asString(tag).trim()).filter(Boolean))].slice(0, 24),
+      keywords: keywordsOf(keywordText, 16),
+      seedTokens: uniqueTokens(keywordText).slice(0, 40),
+      anchors: collectAnchors(keywordText).slice(0, 32),
+      importance: Math.max(1, Math.min(10, Math.trunc(importance))),
+      at: Date.now(),
+      sourceSession: asString(sid),
+      source,
+    }
+    this.memory.bank.set(id, record)
+    if (project !== 'global') {
+      this.memory.projects.set(project, { path: asString(projectPath), updatedAt: record.at })
+    }
+    while (this.memory.bank.size > 500) {
+      let worst = null
+      for (const item of this.memory.bank.values()) {
+        if (!worst || item.importance < worst.importance || (item.importance === worst.importance && item.at < worst.at)) worst = item
+      }
+      if (!worst) break
+      this.memory.bank.delete(worst.id)
+    }
+    this.memory.revision += 1
+    this.hotCache.clear()
+    this.scheduleMemorySave()
+    return record
+  }
+
+  bankForSession(sid, scope = 'project') {
+    const project = this.projectIdFor(this.projectPathFor(sid))
+    const map = new Map()
+    for (const record of this.memory.bank.values()) {
+      if (scope === 'all' || record.projectId === 'global' || (scope === 'project' && record.projectId === project)) {
+        map.set(record.id, record)
+      }
+    }
+    return map
+  }
+
+  bankLinks(record, limit = 5) {
+    if (!record) return []
+    const tags = new Set(record.tags || [])
+    const words = new Set([...(record.keywords || []), ...(record.seedTokens || [])])
+    const scored = []
+    for (const other of this.memory.bank.values()) {
+      if (other.id === record.id) continue
+      let score = 0
+      for (const tag of other.tags || []) if (tags.has(tag)) score += 2
+      for (const word of other.keywords || []) if (words.has(word)) score += 1
+      if (other.projectId === record.projectId) score += 1
+      if (score > 0) scored.push({ id: other.id, title: other.title, score })
+    }
+    return scored.sort((left, right) => right.score - left.score).slice(0, limit)
+  }
+
+  reflectBank(sid) {
+    const scope = this.bankForSession(sid, 'project')
+    const byTitle = new Map()
+    for (const record of scope.values()) {
+      if (record.projectId === 'global') continue
+      const key = record.title.toLowerCase()
+      const previous = byTitle.get(key)
+      if (!previous || record.importance > previous.importance || record.at > previous.at) byTitle.set(key, record)
+    }
+    let removed = 0
+    for (const record of scope.values()) {
+      if (record.projectId === 'global') continue
+      const keep = byTitle.get(record.title.toLowerCase())
+      if (keep && keep.id !== record.id) {
+        keep.tags = [...new Set([...(keep.tags || []), ...(record.tags || [])])].slice(0, 24)
+        keep.importance = Math.max(keep.importance, record.importance)
+        this.memory.bank.delete(record.id)
+        removed += 1
+      }
+    }
+    if (removed > 0) {
+      this.memory.revision += 1
+      this.hotCache.clear()
+      this.scheduleMemorySave()
+    }
+    return { inspected: scope.size, merged: removed, bank: this.memory.bank.size }
+  }
+
   remember(sid, kind, text, seq, time) {
     if (!this.config.memory.enabled) return
     const boundedText = asString(text).slice(0, 12000)
@@ -2634,6 +2792,29 @@ class AgiFederated {
     this.memory.revision += 1
     this.hotCache.delete(sid)
     this.scheduleMemorySave()
+    if (kind === 'tool-error' && summary.length >= 24) {
+      this.rememberBank({
+        sid,
+        projectPath: this.projectPathFor(sid),
+        title: 'Tool lesson: ' + summarizeText(summary, 80),
+        content: summary + '\n' + anchors.map((anchor) => anchor.kind + ': ' + anchor.value).join('\n'),
+        kind: 'lesson',
+        tags: ['auto', 'tool-error'],
+        importance: Math.max(6, record.importance),
+        source: 'auto:tool-error',
+      })
+    } else if (kind === 'intent' && new RegExp('(?:\\u8bb0\\u4f4f|\\u8bb0\\u4e00\\u4e0b|\\u4fdd\\u5b58\\u4e3a\\u8bb0\\u5fc6|remember|save this)', 'i').test(summary)) {
+      this.rememberBank({
+        sid,
+        projectPath: this.projectPathFor(sid),
+        title: summarizeText(summary, 100),
+        content: summary,
+        kind: 'fact',
+        tags: ['auto', 'explicit'],
+        importance: 7,
+        source: 'auto:explicit',
+      })
+    }
   }
 
   renderMemoryPrompt(sid) {
@@ -2670,10 +2851,20 @@ class AgiFederated {
       recallLines.push(line)
       used += line.length + 1
     }
+    const projectBank = this.bankForSession(sid, 'project')
+    const bankRecall = this.bm25Recall(query, 4, null, projectBank)
+    const projectLines = []
+    for (const item of bankRecall) {
+      const line = `- [${item.kind}] ${item.title}: ${item.summary}`
+      if (used + line.length > this.config.memory.injectionMaxChars) break
+      projectLines.push(line)
+      used += line.length + 1
+    }
     const header = `[AGI HOT MEMORY | session ${sid.slice(0, 12)} | ${records.length} records | byte-stable]`
     const recallHeader = recallLines.length > 0 ? '\n[BM25 LONG-TAIL RECALL]' : ''
+    const projectHeader = projectLines.length > 0 ? '\n[PROJECT MEMORY]' : ''
     const text = truncateCodePoints(
-      `${header}\n${lines.join('\n')}${recallHeader}${recallLines.length ? `\n${recallLines.join('\n')}` : ''}`,
+      `${header}\n${lines.join('\n')}${recallHeader}${recallLines.length ? `\n${recallLines.join('\n')}` : ''}${projectHeader}${projectLines.length ? `\n${projectLines.join('\n')}` : ''}`,
       this.config.memory.injectionMaxChars,
     )
     const snapshot = { revision: this.memory.revision, text }
@@ -2681,13 +2872,13 @@ class AgiFederated {
     return text
   }
 
-  bm25Recall(query, topK, excludeIds) {
+  bm25Recall(query, topK, excludeIds, source = this.memory.clues) {
     const limit = Math.max(0, Math.min(50, Math.trunc(finiteNumber(topK, 0))))
     if (limit === 0) return []
     const queryTokens = uniqueTokens(query)
     if (queryTokens.length === 0) return []
     const documents = []
-    for (const clue of this.memory.clues.values()) {
+    for (const clue of source.values()) {
       if (!clue || excludeIds?.has(clue.id)) continue
       const text = `${(clue.keywords || []).join(' ')} ${(clue.seedTokens || []).join(' ')} ${clue.summary || ''}`
       const tokens = tokenize(text)
@@ -2727,6 +2918,8 @@ class AgiFederated {
     return scored.slice(0, limit).map(({ score, document }) => ({
       id: document.clue.id,
       kind: document.clue.kind,
+      title: document.clue.title || '',
+      tags: document.clue.tags || [],
       summary: document.clue.summary,
       sessionId: document.clue.sessionId,
       score: round(score, 4),
@@ -3500,6 +3693,16 @@ class AgiFederated {
           memory: {
             text: this.renderMemoryPrompt(sid),
             records: (this.memory.sessions.get(sid) || []).length,
+            bank: [...this.bankForSession(sid, 'project').values()].slice(-30).map((item) => ({
+              id: item.id,
+              kind: item.kind,
+              title: item.title,
+              summary: item.summary,
+              tags: item.tags,
+              importance: item.importance,
+              source: item.source,
+              links: this.bankLinks(item, 4),
+            })),
             clues: [...this.memory.clues.values()]
               .filter((clue) => !sid || clue.sessionId === sid)
               .slice(-40)
@@ -3577,6 +3780,11 @@ class AgiFederated {
         debounceMs: this.config.usage.streamDebounceMs,
       },
       evidence: evidenceCounts,
+      memory: {
+        bank: this.memory.bank.size,
+        projects: this.memory.projects.size,
+        clues: this.memory.clues.size,
+      },
       skills: skillCounts,
       federation,
       compat: this.compat,
@@ -3652,6 +3860,129 @@ class AgiFederated {
       },
     })
     register({
+      name: 'agi_memory_remember',
+      description: 'Save a durable project-scoped memory page (local only). Content is redacted, bounded, deduplicated, and searchable by BM25; it never stores a transcript.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['title', 'content'],
+        properties: {
+          title: { type: 'string', description: 'Short page title.' },
+          content: { type: 'string', description: 'Knowledge page body, max 4000 characters.' },
+          kind: { type: 'string', description: 'fact | decision | lesson | task | file' },
+          tags: { type: 'array', items: { type: 'string' }, description: 'Optional tags.' },
+          importance: { type: 'integer', minimum: 1, maximum: 10, default: 6 },
+          scope: { type: 'string', enum: ['project', 'global'], default: 'project' },
+          session_id: { type: 'string', description: 'Optional session id.' },
+        },
+      },
+      output: output('Saved project memory page.'),
+      execute: async (args, exec) => {
+        await this.ready
+        const sid = asString(args?.session_id) || asString(exec?.agent?.id) || this.lastSessionId
+        const projectPath = args?.scope === 'global' ? '' : this.projectPathFor(sid)
+        const record = this.rememberBank({
+          sid,
+          projectPath,
+          title: args?.title,
+          content: args?.content,
+          kind: args?.kind,
+          tags: Array.isArray(args?.tags) ? args.tags : [],
+          importance: Math.trunc(finiteNumber(args?.importance, 6)),
+          source: 'tool',
+        })
+        return record
+          ? { saved: true, id: record.id, projectId: record.projectId, title: record.title, tags: record.tags }
+          : { saved: false, reason: 'empty title/content' }
+      },
+    })
+    register({
+      name: 'agi_memory_search',
+      description: 'Search project/global memory pages with BM25. Local only; returns knowledge-page summaries and graph links, never raw transcripts.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['query'],
+        properties: {
+          query: { type: 'string', description: 'Search query.' },
+          scope: { type: 'string', enum: ['project', 'global', 'all'], default: 'project' },
+          limit: { type: 'integer', minimum: 1, maximum: 50, default: 8 },
+          session_id: { type: 'string', description: 'Optional session id for project selection.' },
+        },
+      },
+      output: output('Memory pages with BM25 scores and graph links.'),
+      isConcurrencySafe: () => true,
+      execute: async (args, exec) => {
+        await this.ready
+        const sid = asString(args?.session_id) || asString(exec?.agent?.id) || this.lastSessionId
+        const scope = ['project', 'global', 'all'].includes(args?.scope) ? args.scope : 'project'
+        const bank = this.bankForSession(sid, scope)
+        const results = this.bm25Recall(asString(args?.query), Math.trunc(finiteNumber(args?.limit, 8)), null, bank)
+          .map((item) => ({
+            ...item,
+            links: this.bankLinks(this.memory.bank.get(item.id), 4),
+          }))
+        return { query: asString(args?.query), scope, results, bankSize: bank.size }
+      },
+    })
+    register({
+      name: 'agi_memory_get',
+      description: 'Read one durable memory page by id, or resolve the best BM25 page for a query. Returns the bounded page content and graph-related pages.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          id: { type: 'string', description: 'Memory page id.' },
+          query: { type: 'string', description: 'Query when id is omitted.' },
+          session_id: { type: 'string', description: 'Optional session id for project selection.' },
+        },
+      },
+      output: output('One memory page and its related pages.'),
+      isConcurrencySafe: () => true,
+      execute: async (args, exec) => {
+        await this.ready
+        const sid = asString(args?.session_id) || asString(exec?.agent?.id) || this.lastSessionId
+        let record = args?.id ? this.memory.bank.get(asString(args.id)) : null
+        if (!record && args?.query) {
+          const bank = this.bankForSession(sid, 'project')
+          const hit = this.bm25Recall(asString(args.query), 1, null, bank)[0]
+          if (hit) record = this.memory.bank.get(hit.id)
+        }
+        if (!record) return { found: false }
+        return {
+          found: true,
+          id: record.id,
+          projectId: record.projectId,
+          projectPath: record.projectPath,
+          kind: record.kind,
+          title: record.title,
+          summary: record.summary,
+          content: record.content,
+          tags: record.tags,
+          importance: record.importance,
+          source: record.source,
+          links: this.bankLinks(record, 8),
+        }
+      },
+    })
+    register({
+      name: 'agi_memory_reflect',
+      description: 'Run a deterministic memory reflection: merge duplicate project pages by title and keep the strongest tags/importance. No model call and no network.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          session_id: { type: 'string', description: 'Optional session id for project selection.' },
+        },
+      },
+      output: output('Reflection counts.'),
+      execute: async (args, exec) => {
+        await this.ready
+        const sid = asString(args?.session_id) || asString(exec?.agent?.id) || this.lastSessionId
+        return this.reflectBank(sid)
+      },
+    })
+    register({
       name: 'agi_memory_snapshot',
       description: 'Render the exact bounded Hot Memory + BM25 injection text for a session without changing durable state.',
       parameters: {
@@ -3666,7 +3997,7 @@ class AgiFederated {
       execute: async (args, exec) => {
         await this.ready
         const sid = asString(args?.session_id) || asString(exec?.agent?.id) || this.lastSessionId
-        return { sessionId: sid, text: this.renderMemoryPrompt(sid), clues: this.memory.clues.size }
+        return { sessionId: sid, text: this.renderMemoryPrompt(sid), clues: this.memory.clues.size, bank: this.memory.bank.size, projects: this.memory.projects.size }
       },
     })
     register({
