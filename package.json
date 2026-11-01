@@ -1,6 +1,6 @@
 {
   "name": "dsh-agi-federated",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "author": "txcdragon",
   "repository": {
@@ -29,7 +29,9 @@
     "cordis.patch.yml",
     "schemas/config.js",
     "README.md",
-    "ARCHITECTURE.md"
+    "ARCHITECTURE.md",
+    "CHANGELOG.md",
+    "MAINTENANCE.md"
   ],
   "engines": {
     "node": ">=20.11.0"
