@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.10 — 2026-11-02
+
+- 随包 `dsh-quota-nexus` 1.23.2：必需 bundle 收敛为 quota-nexus，`dsh-agi-federated` 暂时禁用以终止「恢复→裁剪」循环（其启动无法激活，已有崩溃日志取证）。
+
 ## 1.6.9 — 2026-11-02
 
 - **不崩盘闸门**：新增 `scripts/preflight.mjs`，发布前强制跑「语法 → 19 条自检 → 两个包的无头
