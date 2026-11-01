@@ -29,7 +29,7 @@ window.__ModuleLoader__.load({
     const NS = 'quota-nexus'
     const BASE = '/quota-nexus'
     /** 构建标记：页面上可见，用于确认浏览器加载的是哪一版客户端模块。 */
-    const BUILD_TAG = 'v1.22.2'
+    const BUILD_TAG = 'v1.22.3'
 
     const STRATEGIES = ['priority', 'round-robin', 'balanced', 'sticky']
 
