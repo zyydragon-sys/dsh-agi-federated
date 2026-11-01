@@ -1,7 +1,7 @@
 # dsh-agi-federated
 
 **Author:** txcdragon  
-**Version:** 1.5.0  
+**Version:** 1.5.1  
 **Platform:** DeepSeek Harness Web (Host + `webServer` index tap)  
 **Persistence:** `D:\DeepSeek Harness\agi-federated` (created automatically)
 
