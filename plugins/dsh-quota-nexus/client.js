@@ -29,7 +29,7 @@ window.__ModuleLoader__.load({
     const NS = 'quota-nexus'
     const BASE = '/quota-nexus'
     /** 构建标记：页面上可见，用于确认浏览器加载的是哪一版客户端模块。 */
-    const BUILD_TAG = 'v1.13.0'
+    const BUILD_TAG = 'v1.14.0'
 
     const STRATEGIES = ['priority', 'round-robin', 'balanced', 'sticky']
 
@@ -139,6 +139,13 @@ window.__ModuleLoader__.load({
         'offpeak': '空闲时段',
         'switchIn': '切换倒计时',
         'sessions': '会话用量',
+        'rotation.label': '模型轮转',
+        'rotation.on': '已开启',
+        'rotation.off': '已关闭',
+        'rotation.current': '当前',
+        'rotation.plan': '计划',
+        'rotation.step': '立即切换下一个',
+        'rotation.noRoutes': '未发现可调用的模型路由',
         'col.name': '名称',
         'col.requests': '请求',
         'col.tokens': 'Token',
@@ -285,6 +292,13 @@ window.__ModuleLoader__.load({
         'offpeak': 'Off-peak',
         'switchIn': 'changes in',
         'sessions': 'Sessions',
+        'rotation.label': 'Model rotation',
+        'rotation.on': 'On',
+        'rotation.off': 'Off',
+        'rotation.current': 'current',
+        'rotation.plan': 'plan',
+        'rotation.step': 'Switch to next now',
+        'rotation.noRoutes': 'No callable model route found',
         'col.name': 'Name',
         'col.requests': 'Req',
         'col.tokens': 'Token',
@@ -862,7 +876,8 @@ window.__ModuleLoader__.load({
               h('span', null, t('col.actual')),
               h('span', null, t('col.standard')),
             ),
-            ...rows.map((item, index) =>
+            ...(rows.length
+              ? rows.map((item, index) =>
               h(
                 'div',
                 {
@@ -893,7 +908,8 @@ window.__ModuleLoader__.load({
                 h('span', { style: { color: 'var(--dsw-alias-state-success-primary)' } }, fmtMoney(item.costUsd)),
                 h('span', { style: { color: 'var(--dsw-alias-label-secondary)' } }, fmtMoney(item.listCostUsd)),
               ),
-            ),
+                )
+              : [h('div', { key: 'empty', style: { color: 'var(--dsw-alias-label-secondary)' } }, t('detail.none'))]),
           ),
         ),
       )
@@ -999,6 +1015,15 @@ window.__ModuleLoader__.load({
       const [usage, setUsage] = useState(null)
       const [calendar, setCalendar] = useState(null)
       const [distMetric, setDistMetric] = useState('tokens')
+      const [rotation, setRotation] = useState(null)
+
+      useEffect(() => {
+        void api('/api/rotation')
+          .then((payload) => {
+            if (payload?.ok) setRotation(payload)
+          })
+          .catch(() => {})
+      }, [snapshot?.generatedAt])
 
       useEffect(() => {
         void api(`/api/usage?range=${usageRange}`)
@@ -1124,6 +1149,25 @@ window.__ModuleLoader__.load({
         },
         [refresh],
       )
+
+      const toggleRotation = useCallback(
+        async (enabled) => {
+          setBusy(true)
+          const result = await api('/api/rotation', { method: 'POST', body: { enabled } })
+          setBusy(false)
+          if (result?.ok) setRotation((current) => ({ ...(current ?? {}), ...result }))
+        },
+        [],
+      )
+
+      const stepRotation = useCallback(async () => {
+        setBusy(true)
+        const result = await api('/api/rotation/step', { method: 'POST' })
+        setBusy(false)
+        if (result?.ok) {
+          setRotation((current) => ({ ...(current ?? {}), current: result.to }))
+        }
+      }, [])
 
       const remove = useCallback(
         async (provider) => {
@@ -1275,6 +1319,29 @@ window.__ModuleLoader__.load({
             ),
           ),
         ),
+        h(
+          'div',
+          { style: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 12 } },
+          h('span', { style: { color: 'var(--dsw-alias-label-secondary)' } }, t('rotation.label')),
+          h(
+            'button',
+            {
+              type: 'button',
+              style: rotation?.enabled ? style.primary : style.buttonSmall,
+              disabled: busy,
+              onClick: () => void toggleRotation(!rotation?.enabled),
+            },
+            rotation?.enabled ? t('rotation.on') : t('rotation.off'),
+          ),
+          rotation?.current
+            ? h('span', { style: style.meta }, t('rotation.current') + ' ' + rotation.current.provider + '/' + rotation.current.model)
+            : null,
+          rotation?.plan?.length
+            ? h('span', { style: style.meta }, t('rotation.plan') + ' ' + rotation.plan.map((entry) => entry.provider + '/' + entry.model).join(' → '))
+            : h('span', { style: style.meta }, t('rotation.noRoutes')),
+          h('button', { type: 'button', style: style.buttonSmall, disabled: busy, onClick: () => void stepRotation() }, t('rotation.step')),
+        ),
+
         h(
           'div',
           { style: style.chips },
@@ -1520,11 +1587,11 @@ window.__ModuleLoader__.load({
               ),
             ),
           ),
-          (usage?.providers ?? []).some((row) => row.totals.requests > 0)
+          (usage?.providers ?? []).length
             ? h(
                 'div',
                 { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 10 } },
-                ...(usage?.providers ?? []).filter((row) => row.totals.requests > 0).flatMap((row) => [
+                ...(usage?.providers ?? []).flatMap((row) => [
                   h(DistributionCard, {
                     key: row.providerId + '-models',
                     title: row.label + ' · ' + t('dist.models'),
@@ -1556,7 +1623,7 @@ window.__ModuleLoader__.load({
                 ]),
               )
             : h('div', { style: style.note }, t('noUsage')),
-          ...(usage?.providers ?? []).filter((row) => row.totals.requests > 0).map((row) =>
+          ...(usage?.providers ?? []).map((row) =>
             h(TrendCard, { key: row.providerId + '-trend', row, t }),
           ),
         ),
