@@ -1,0 +1,8 @@
+- insert:
+    - id: dsh-quota-nexus
+      name: dsh-quota-nexus
+      config:
+        persistenceRoot: 'D:\DeepSeek Harness'
+        strategy: balanced
+        maxAttempts: 8
+        queueWaitMs: 100
