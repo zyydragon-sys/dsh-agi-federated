@@ -324,6 +324,11 @@ aborted after 1.5 s and never block the UI. The status route reads only memory.
   boundary.
 - A negative/zero balance or an explicit provider retry-after opens a cooldown.
 
+`agent/request`, `request/header`, `request/context`, stream, and assistant events
+feed a per-session model tracker. The status field uses the latest effective
+provider/model for that session and keeps a bounded recent-switch history; a
+model selector change therefore replaces the displayed model on the next call.
+
 `llm/stream` checks the breaker before dispatch. The floating window renders the
 remaining cooldown with a 250 ms countdown tick.
 
