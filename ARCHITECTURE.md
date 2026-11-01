@@ -439,12 +439,13 @@ The plugin source is uploaded at:
 https://github.com/zyydragon-sys/dsh-agi-federated
 ```
 
-The GitHub token used for the API upload authenticated as `zyydragon-sys`;
-`txcdragon` is the author/brand name and currently has no GitHub account or
-organization. The catalog entry must therefore use the actual repository owner
-unless the account is renamed or an organization is created before submission.
+Final attribution decision: the repository owner is `zyydragon-sys`, the author
+and product brand remains `txcdragon`, and the catalog entry uses the actual
+repository URL above.
 
-The catalog requires a repository at least one day old, so the directory pull
-request is deferred to the next day. The prepared entry, README, architecture
-document, and archive live under `market-submission-txcdragon/`.
+The repository was created at 2026-11-01 17:41 Asia/Shanghai. The catalog
+requires a repository at least one day old, so the directory pull request is
+eligible from 2026-11-02 17:41 Asia/Shanghai. The prepared entry, README,
+architecture document, and archive live under `market-submission-txcdragon/`.
+
 
