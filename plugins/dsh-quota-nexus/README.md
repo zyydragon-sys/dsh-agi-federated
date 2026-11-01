@@ -1,7 +1,11 @@
 # dsh-quota-nexus
 
+**Version:** 1.3.0 · **Bundle:** `plugins/dsh-quota-nexus` in
+[`zyydragon-sys/dsh-agi-federated`](https://github.com/zyydragon-sys/dsh-agi-federated)
+
 多模型供应商额度池 + O(1) 租约调度 + 熔断恢复 + 0s 额度遥测。作为 DeepSeek Harness 的
-Host 插件（bundle）运行，并在 **设置 → 额度中枢** 里提供一个卡片列表式供应商管理页。
+Host 插件（bundle）运行，并在 **设置 → 额度中枢** 与 **左侧栏「额度中枢」图标** 里提供
+卡片列表式供应商管理页。
 
 ## 文件
 
