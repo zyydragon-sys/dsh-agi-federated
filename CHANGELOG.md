@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.6.6 — 2026-11-02
+
+- 新增 `scripts/profile-guard.mjs`：校验运行中 profile（`DSH_PROFILE_DIR`）的
+  `dependencies` 与 `dsh.profile.bundles` 是否仍收录 `dsh-quota-nexus`，缺失时退出码 1，
+  `--fix` 可补回。
+- 事故背景（已复现取证）：profile 的 `package.json` 被外部 PowerShell 重写后带上 UTF-8 BOM、
+  且 `link:` 路径里的中文变成乱码（`D:/Deepseek宸ヤ綔鍖?`），随后 Host 启动时该插件
+  **整体未加载**——状态工具消失、`/quota-nexus/api/*` 返回 404、界面两个用量胶囊与设置页同时消失。
+  恢复后 `node scripts/profile-guard.mjs` 通过，插件 build 回到 `v1.22.4`、REST `ok=true`。
+- 技能归档补齐到 12 个（新增 skill-center 的九个领域技能），`skills-sync --check` 通过。
+
 ## 1.6.5 — 2026-11-01
 
 - 随包 `dsh-quota-nexus` 1.22.4：修复 Host 启动顺序导致 REST 面板永久缺失的问题
