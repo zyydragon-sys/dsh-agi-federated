@@ -54,6 +54,7 @@ const GROUPS = {
       'ARCHITECTURE.md',
       'CHANGELOG.md',
       'MAINTENANCE.md',
+      'EVOLUTION.md',
       'schemas/config.js',
       'scripts/publish.mjs',
       'scripts/monitor.mjs',
