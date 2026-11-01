@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { CONFIG_VERSION, DEFAULT_CONFIG, normalizeConfig, validateConfig } from './schemas/config.js'
 
 const PLUGIN_ID = 'dsh-agi-federated'
-const PLUGIN_VERSION = '1.0.0'
+const PLUGIN_VERSION = '1.0.1'
 const MEMORY_FILE = 'memory.json'
 const EVIDENCE_FILE = 'evidence.json'
 const USAGE_FILE = 'usage.json'
@@ -612,15 +612,20 @@ function getByPath(value, dottedPath) {
   return current
 }
 
-function contentText(content) {
+function contentText(content, options = {}) {
+  const includeReasoning = options.includeReasoning === true
+  const includeToolCalls = options.includeToolCalls === true
   if (typeof content === 'string') return content
   if (!Array.isArray(content)) return ''
   const parts = []
   for (const block of content) {
     if (!block || typeof block !== 'object') continue
     if (block.type === 'text' && typeof block.text === 'string') parts.push(block.text)
-    else if (block.type === 'reasoning' && typeof block.text === 'string') parts.push(block.text)
-    else if (block.type === 'tool-call') parts.push(`[tool-call ${block.name || ''} ${block.arguments || ''}]`)
+    // Hidden reasoning and raw tool-call arguments are never materialized into
+    // memory, evidence, or checkpoint text. Opt in only for a caller that has a
+    // deliberate reason to read them.
+    else if (includeReasoning && block.type === 'reasoning' && typeof block.text === 'string') parts.push(block.text)
+    else if (includeToolCalls && block.type === 'tool-call') parts.push(`[tool-call ${block.name || ''} ${block.arguments || ''}]`)
     else if (block.type === 'image') parts.push('[image]')
     else if (block.type === 'file') parts.push(`[file ${block.attachment?.name || ''}]`)
   }
@@ -1279,7 +1284,10 @@ class EvidenceIndex {
     if (!sid || !id) return
     this.calls.set(`${sid}\0${id}`, {
       name: asString(name, 'tool'),
-      arguments: asString(argumentsValue, ''),
+      // Tool arguments are the highest-risk persistence point: a shell command
+      // can contain a credential verbatim. Redact before the map or any later
+      // evidence record can retain it.
+      arguments: redactSecrets(asString(argumentsValue, '')),
       at: Date.now(),
     })
     while (this.calls.size > 4000) {
@@ -1294,7 +1302,7 @@ class EvidenceIndex {
     if (!sid) return null
     const call = this.calls.get(`${sid}\0${asString(callId)}`)
     const name = asString(tool, call?.name || 'tool')
-    const argsText = asString(argumentsValue, call?.arguments || '')
+    const argsText = redactSecrets(asString(argumentsValue, call?.arguments || ''))
     const output = resultText(result)
     const success = result && typeof result === 'object' ? result.isError !== true : true
     const level = this.classify(name, output, success)
@@ -1449,7 +1457,11 @@ class EvidenceIndex {
       if (Array.isArray(value.calls)) {
         for (const pair of value.calls) {
           if (Array.isArray(pair) && pair.length === 2 && typeof pair[0] === 'string') {
-            this.calls.set(pair[0], pair[1])
+            const entry = pair[1] && typeof pair[1] === 'object' ? pair[1] : {}
+            this.calls.set(pair[0], {
+              ...entry,
+              arguments: redactSecrets(asString(entry.arguments, '')),
+            })
           }
         }
       }
