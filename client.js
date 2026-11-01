@@ -277,7 +277,7 @@ window.__ModuleLoader__.load({
           ),
           h(Card, { title: '记忆与证据', onClick: () => openDetail('memory') },
             h(Row, { label: 'Hot Memory', value: '24 条上限 · 字节稳定' }),
-            h(Row, { label: 'Project Memory', value: (data.memory?.bank || 0) + ' 页' }),
+            h(Row, { label: 'Project Memory', value: (data?.memory?.bank || 0) + ' 页' }),
             h(Row, { label: 'Evidence', value: (evidence.records || 0) + ' 条 / ' + (evidence.sessions || 0) + ' 个会话' }),
             h(Row, { label: 'Clue Store', value: 'BM25 长尾召回' }),
             h(Row, { label: 'Checkpoint', value: '确定性表面压缩' }),
