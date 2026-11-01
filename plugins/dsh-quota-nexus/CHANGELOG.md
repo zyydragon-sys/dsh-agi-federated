@@ -3,6 +3,21 @@
 The nested bundle keeps its own version, independent of the root
 `dsh-agi-federated` bundle (`plugins/dsh-quota-nexus/package.json`).
 
+## 1.12.0 — 2026-11-01
+
+- Official price snapshot: DeepSeek `deepseek-flash` / `deepseek-v4-pro` with
+  per-1M-token cache-hit / input / output prices for peak and off-peak, captured
+  from <https://api-docs.deepseek.com/quick_start/pricing> (2026-11-01). Only
+  vendors present in the snapshot expose pricing — other providers show balance only.
+- Billing phase: `billingOf()` computes peak vs off-peak (UTC Mon–Fri 01:00–04:00 and
+  06:00–10:00 = Beijing 09:00–12:00 and 14:00–18:00, CN holidays excluded via the new
+  `billingHolidays` config) and the next transition time. The card renders a coloured
+  dot (●peak / ○off-peak) plus a live “切换倒计时” that ticks locally each second.
+- Cost estimation: usage events now keep the input / cached / output split, and
+  `usageSummary` prices every event with the snapshot at its own billing phase, so the
+  KPI card “消费（估算）”, `totals.costUsd` and `costByModel` reflect real usage ×
+  official price (marked as an estimate, USD).
+
 ## 1.11.1 — 2026-11-01
 
 - UI: provider cards no longer print “尚未观测到额度响应头 …” or the probe HTTP code
