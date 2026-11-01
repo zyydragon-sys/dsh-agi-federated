@@ -1,4 +1,4 @@
-﻿window.__ModuleLoader__.load({
+window.__ModuleLoader__.load({
   id: 'dsh-agi-federated',
   factory(require) {
     const React = require('react');
@@ -14,7 +14,7 @@
         async function load() {
           try {
             const response = await fetch(STATUS_URL, { cache: 'no-store' });
-            if (!response.ok) throw new Error('HTTP ' + response.status);
+            if (!response.ok) throw new Error(response.status === 404 ? 'Host 插件未激活（404）；请启用或重启 DSH' : 'HTTP ' + response.status);
             const data = await response.json();
             if (alive) setState({ loading: false, data, error: '' });
           } catch (error) {
@@ -96,7 +96,7 @@
         ),
         error ? h('div', { style: { marginBottom: 16, padding: '10px 12px', borderRadius: 8, border: '1px solid var(--dsw-alias-state-warn-primary)', color: 'var(--dsw-alias-state-warn-primary)', fontSize: 13 } }, '状态读取失败：' + error) : null,
         h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 18, fontSize: 12, color: 'var(--dsw-alias-label-secondary)' } },
-          h(Chip, { tone: 'ok' }, 'v' + (data && data.version ? data.version : '1.0.1')),
+          h(Chip, { tone: 'ok' }, 'v' + (data && data.version ? data.version : '1.1.0')),
           h('span', null, 'Host ' + (data && data.compat && data.compat.hostVersion ? data.compat.hostVersion : '0.2.1-rc.5')),
           h('span', null, '·'),
           h('span', null, '更新于 ' + generated),
