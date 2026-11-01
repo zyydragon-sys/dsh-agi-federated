@@ -309,11 +309,7 @@ window.__ModuleLoader__.load({
           ),
           h(Card, { title: '永久技能', onClick: () => openDetail('skills') },
             h(Row, { label: '已安装', value: projectSkills.length + ' 个' }),
-            ...projectSkills.slice(0, 3).map((skill) => h(Row, {
-              key: skill.name,
-              label: skill.name,
-              value: (skill.origin === 'darwin' ? 'darwin' : 'manual') + ' · 永久',
-            })),
+            h(Row, { label: '技能列表', value: projectSkills.map((skill) => skill.name).join(' · ') || '—' }),
             h(Row, { label: '学习/升级', value: '受控演进器 · 可回滚' }),
           ),
           h(Card, { title: '联邦 seams', onClick: () => openDetail('federation') },
@@ -339,11 +335,7 @@ window.__ModuleLoader__.load({
             h('span', { style: { color: 'var(--dsw-alias-state-success-primary)', fontSize: 12 } }, projectSkills.length + ' 个 · 可学习升级'),
           ),
           h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 8 } },
-            ...(projectSkills.length ? projectSkills.map((skill) => h('span', {
-              key: skill.name,
-              style: { border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 999, padding: '4px 9px', fontSize: 12, color: 'var(--dsw-alias-label-primary)', background: 'var(--dsw-alias-bg-layer-2)' },
-              title: skill.description || '',
-            }, skill.name + (skill.origin === 'darwin' ? ' · darwin' : ' · manual'))) : [h('span', { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 13 } }, '暂未发现项目级永久技能')]),
+            projectSkills.map((skill) => skill.name + (skill.origin === 'darwin' ? ' · darwin' : ' · manual')).join('  ·  ') || '暂未发现项目级永久技能',
           ),
         ),
         h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 18, alignItems: 'center' } },
@@ -366,7 +358,7 @@ window.__ModuleLoader__.load({
       },
         h('h1', { style: { margin: 0, fontSize: 22 } }, 'AGI Federated'),
         h('p', { style: { marginTop: 12, color: 'var(--dsw-alias-label-secondary)', fontSize: 13 } }, 'AGI 面板未激活或渲染失败。Host 状态接口不受影响。'),
-        error ? h('pre', { style: { marginTop: 12, padding: 12, borderRadius: 8, background: 'var(--dsw-alias-bg-layer-2)', color: 'var(--dsw-alias-state-warn-primary)', whiteSpace: 'pre-wrap', fontSize: 12 } }, String(error)) : null,
+        error ? h('pre', { style: { marginTop: 12, padding: 12, borderRadius: 8, background: 'var(--dsw-alias-bg-layer-2)', color: 'var(--dsw-alias-state-warn-primary)', whiteSpace: 'pre-wrap', fontSize: 12 } }, String(error?.stack || error)) : null,
         h('button', {
           onClick: () => window.location.reload(),
           style: { marginTop: 16, border: '1px solid var(--dsw-alias-border-l1)', background: 'transparent', color: 'var(--dsw-alias-label-primary)', borderRadius: 7, padding: '6px 12px', cursor: 'pointer', fontSize: 13 },
@@ -380,7 +372,22 @@ window.__ModuleLoader__.load({
         this.state = { error: null };
       }
       static getDerivedStateFromError(error) { return { error }; }
-      componentDidCatch(error) { window.__AGI_PANEL_ERROR__ = String(error); }
+      componentDidCatch(error, info) {
+        const payload = {
+          message: String(error?.message || error),
+          stack: String(error?.stack || ''),
+          componentStack: String(info?.componentStack || ''),
+          at: Date.now(),
+        };
+        window.__AGI_PANEL_ERROR__ = payload.message;
+        try {
+          fetch('/agi-federated/client-error', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          }).catch(() => {});
+        } catch {}
+      }
       render() {
         if (this.state.error) return h(StaticFallbackPanel, { error: this.state.error });
         return this.props.children;
