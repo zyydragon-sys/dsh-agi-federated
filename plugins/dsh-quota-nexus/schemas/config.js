@@ -108,6 +108,8 @@ export const DEFAULTS = Object.freeze({
   /** 多级预警阈值（消耗比例）与去重窗口。 */
   alertThresholds: [0.8, 0.9, 0.95],
   alertBalanceFloor: 0,
+  /** 中国法定节假日（YYYY-MM-DD）；节日整天空闲价，用于高峰/空闲时段判定。 */
+  billingHolidays: [],
   alertDedupeMs: 600_000,
   alertWebhookUrls: [],
   alertInbox: true,
@@ -214,6 +216,7 @@ export function normalizeConfig(input) {
     hardFloorRatio: num(raw.hardFloorRatio, DEFAULTS.hardFloorRatio, 0.001, 0.5),
     alertThresholds: ratioList(raw.alertThresholds, DEFAULTS.alertThresholds),
     alertBalanceFloor: num(raw.alertBalanceFloor, DEFAULTS.alertBalanceFloor, 0, 1_000_000),
+    billingHolidays: strList(raw.billingHolidays, DEFAULTS.billingHolidays),
     alertDedupeMs: Math.round(num(raw.alertDedupeMs, DEFAULTS.alertDedupeMs, 1_000, 86_400_000)),
     alertWebhookUrls: strList(raw.alertWebhookUrls, DEFAULTS.alertWebhookUrls),
     alertInbox: bool(raw.alertInbox, DEFAULTS.alertInbox),
@@ -303,6 +306,10 @@ function build() {
         .default([...DEFAULTS.alertThresholds])
         .description('多级额度预警阈值（消耗比例）。'),
       alertBalanceFloor: z.number().min(0).default(DEFAULTS.alertBalanceFloor).description('余额预警下限。'),
+      billingHolidays: z
+        .array(z.string())
+        .default([])
+        .description('中国法定节假日（YYYY-MM-DD）；节日整天按空闲价计。'),
       alertDedupeMs: z.number().min(1_000).default(DEFAULTS.alertDedupeMs).description('预警去重窗口毫秒数。'),
       alertWebhookUrls: z.array(z.string()).default([]).description('预警 Webhook 推送地址（空则不推送）。'),
       alertInbox: z.boolean().default(true).description('是否写入站内信收件箱。'),
