@@ -29,7 +29,7 @@ window.__ModuleLoader__.load({
     const NS = 'quota-nexus'
     const BASE = '/quota-nexus'
     /** 构建标记：页面上可见，用于确认浏览器加载的是哪一版客户端模块。 */
-    const BUILD_TAG = 'v1.12.2'
+    const BUILD_TAG = 'v1.13.0'
 
     const STRATEGIES = ['priority', 'round-robin', 'balanced', 'sticky']
 
@@ -139,6 +139,20 @@ window.__ModuleLoader__.load({
         'offpeak': '空闲时段',
         'switchIn': '切换倒计时',
         'sessions': '会话用量',
+        'col.name': '名称',
+        'col.requests': '请求',
+        'col.tokens': 'Token',
+        'col.actual': '实际',
+        'col.standard': '标准',
+        'dist.models': '模型分布',
+        'dist.endpoints': '端点分布',
+        'metric.tokens': '按 Token',
+        'metric.cost': '按实际消费',
+        'trendTitle': 'Token 使用趋势',
+        'legend.input': 'Input',
+        'legend.output': 'Output',
+        'legend.cacheRead': 'Cache Read',
+        'legend.cacheHitRate': 'Cache Hit Rate',
         'calendar': '每周 Token 热力',
         'calendarHint': '按 ISO 周聚合（近 6 个月）',
         'trend': '小时趋势',
@@ -271,6 +285,20 @@ window.__ModuleLoader__.load({
         'offpeak': 'Off-peak',
         'switchIn': 'changes in',
         'sessions': 'Sessions',
+        'col.name': 'Name',
+        'col.requests': 'Req',
+        'col.tokens': 'Token',
+        'col.actual': 'Actual',
+        'col.standard': 'Standard',
+        'dist.models': 'Model distribution',
+        'dist.endpoints': 'Endpoint distribution',
+        'metric.tokens': 'By token',
+        'metric.cost': 'By actual cost',
+        'trendTitle': 'Token usage trend',
+        'legend.input': 'Input',
+        'legend.output': 'Output',
+        'legend.cacheRead': 'Cache read',
+        'legend.cacheHitRate': 'Cache hit rate',
         'calendar': 'Weekly token heat',
         'calendarHint': 'grouped by ISO week (last 6 months)',
         'trend': 'Hourly trend',
@@ -743,6 +771,223 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /** 图表配色（高对比序列，暗色主题下可读）。 */
+    const CHART_COLORS = ['#3fb6a8', '#f0b429', '#7aa7ff', '#e2708f', '#9b8cff', '#5cc27d', '#e08a4f', '#8b95a7']
+
+    const fmtMoney = (value) => '\u0024' + (Number(value) || 0).toFixed(4)
+
+    const fmtTokensShort = (value) => {
+      const n = Number(value) || 0
+      if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B'
+      if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M'
+      if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K'
+      return String(n)
+    }
+
+    /** 环形图：按占比切分。 */
+    function DonutChart({ items, total, centerLabel, unit }) {
+      const radius = 42
+      const circumference = 2 * Math.PI * radius
+      const sum = total || items.reduce((acc, item) => acc + item.value, 0)
+      let offset = 0
+      const segments = items.map((item, index) => {
+        const share = sum ? item.value / sum : 0
+        const dash = share * circumference
+        const segment = h('circle', {
+          key: index,
+          cx: 60,
+          cy: 60,
+          r: radius,
+          fill: 'none',
+          stroke: CHART_COLORS[index % CHART_COLORS.length],
+          strokeWidth: 17,
+          strokeDasharray: dash + ' ' + (circumference - dash),
+          strokeDashoffset: -offset,
+          transform: 'rotate(-90 60 60)',
+        })
+        offset += dash
+        return segment
+      })
+      return h(
+        'svg',
+        { viewBox: '0 0 120 120', width: 132, height: 132, role: 'img', 'aria-label': centerLabel },
+        h('circle', { cx: 60, cy: 60, r: radius, fill: 'none', stroke: 'var(--dsw-alias-bg-layer-2)', strokeWidth: 17 }),
+        ...segments,
+        h('text', { x: 60, y: 58, textAnchor: 'middle', fontSize: 10, fill: 'var(--dsw-alias-label-secondary)' }, centerLabel),
+        h('text', { x: 60, y: 74, textAnchor: 'middle', fontSize: 12, fontWeight: 700, fill: 'var(--dsw-alias-label-primary)' }, unit),
+      )
+    }
+
+    /** 分布卡：环形图 + 明细表（请求 / Token / 实际 / 标准）。 */
+    function DistributionCard({ title, items, metric, t }) {
+      const valueOf = (item) => (metric === 'cost' ? item.costUsd : item.tokens)
+      const rows = items.slice(0, 6)
+      const total = items.reduce((acc, item) => acc + valueOf(item), 0)
+      const centerUnit = metric === 'cost' ? fmtMoney(total) : fmtTokensShort(total)
+      return h(
+        'div',
+        {
+          style: {
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+            border: '1px solid var(--dsw-alias-border-l1)',
+            borderRadius: 10,
+            background: 'var(--dsw-alias-bg-layer-1)',
+            padding: '10px 12px',
+            minWidth: 0,
+          },
+        },
+        h('div', { style: { fontSize: 12, fontWeight: 600, color: 'var(--dsw-alias-label-primary)' } }, title),
+        h(
+          'div',
+          { style: { display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' } },
+          h(DonutChart, { items: items.map((item) => ({ value: valueOf(item) })), total, centerLabel: title, unit: centerUnit }),
+          h(
+            'div',
+            { style: { flex: '1 1 240px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3, fontSize: 11 } },
+            h(
+              'div',
+              {
+                style: {
+                  display: 'grid',
+                  gridTemplateColumns: 'minmax(0,1.7fr) 44px 60px 64px 64px',
+                  gap: 4,
+                  color: 'var(--dsw-alias-label-secondary)',
+                },
+              },
+              h('span', null, t('col.name')),
+              h('span', null, t('col.requests')),
+              h('span', null, t('col.tokens')),
+              h('span', null, t('col.actual')),
+              h('span', null, t('col.standard')),
+            ),
+            ...rows.map((item, index) =>
+              h(
+                'div',
+                {
+                  key: index,
+                  style: {
+                    display: 'grid',
+                    gridTemplateColumns: 'minmax(0,1.7fr) 44px 60px 64px 64px',
+                    gap: 4,
+                    alignItems: 'center',
+                  },
+                },
+                h(
+                  'span',
+                  { style: { display: 'inline-flex', alignItems: 'center', gap: 5, minWidth: 0 } },
+                  h('span', {
+                    style: {
+                      width: 7,
+                      height: 7,
+                      borderRadius: 2,
+                      background: CHART_COLORS[index % CHART_COLORS.length],
+                      flex: '0 0 auto',
+                    },
+                  }),
+                  h('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, item.name),
+                ),
+                h('span', { style: { color: 'var(--dsw-alias-label-secondary)' } }, String(item.requests)),
+                h('span', { style: { color: 'var(--dsw-alias-label-secondary)' } }, fmtTokensShort(item.tokens)),
+                h('span', { style: { color: 'var(--dsw-alias-state-success-primary)' } }, fmtMoney(item.costUsd)),
+                h('span', { style: { color: 'var(--dsw-alias-label-secondary)' } }, fmtMoney(item.listCostUsd)),
+              ),
+            ),
+          ),
+        ),
+      )
+    }
+
+    /** Token 使用趋势：Input / Output / Cache Read 折线 + 缓存命中率（右轴）。 */
+    function TrendCard({ row, t }) {
+      const buckets = row.buckets ?? []
+      const width = 640
+      const height = 170
+      const pad = 26
+      const maxTokens = Math.max(
+        1,
+        ...buckets.map((bucket) => Math.max(bucket.input || 0, bucket.output || 0, bucket.cached || 0)),
+      )
+      const x = (index) => pad + (index * (width - pad * 2)) / Math.max(1, buckets.length - 1)
+      const y = (value) => height - pad - (value / maxTokens) * (height - pad * 2)
+      const yRate = (rate) => height - pad - rate * (height - pad * 2)
+      const path = (get) =>
+        buckets.map((bucket, index) => (index === 0 ? 'M' : 'L') + x(index) + ',' + y(get(bucket))).join(' ')
+      const ratePoints = buckets
+        .map((bucket, index) => {
+          const denom = (bucket.input || 0) + (bucket.cached || 0)
+          if (!denom) return null
+          return [index, bucket.cached / denom]
+        })
+        .filter(Boolean)
+      const rateLine = ratePoints.map((point, index) => (index === 0 ? 'M' : 'L') + x(point[0]) + ',' + yRate(point[1])).join(' ')
+      const series = [
+        { key: 'input', label: t('legend.input'), color: '#3fb6a8', get: (bucket) => bucket.input || 0 },
+        { key: 'output', label: t('legend.output'), color: '#f0b429', get: (bucket) => bucket.output || 0 },
+        { key: 'cached', label: t('legend.cacheRead'), color: '#7aa7ff', get: (bucket) => bucket.cached || 0 },
+      ]
+      return h(
+        'div',
+        {
+          style: {
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+            border: '1px solid var(--dsw-alias-border-l1)',
+            borderRadius: 10,
+            background: 'var(--dsw-alias-bg-layer-1)',
+            padding: '10px 12px',
+            minWidth: 0,
+          },
+        },
+        h(
+          'div',
+          { style: { display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 } },
+          h(
+            'span',
+            { style: { fontSize: 12, fontWeight: 600, color: 'var(--dsw-alias-label-primary)' } },
+            t('trendTitle') + ' · ' + row.label,
+          ),
+          h(
+            'span',
+            { style: { display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } },
+            ...series.map((item) =>
+              h(
+                'span',
+                { key: item.key, style: { display: 'inline-flex', alignItems: 'center', gap: 4 } },
+                h('span', { style: { width: 8, height: 8, borderRadius: 2, background: item.color } }),
+                item.label,
+              ),
+            ),
+            h(
+              'span',
+              { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } },
+              h('span', { style: { width: 9, height: 2, background: '#c58bff' } }),
+              t('legend.cacheHitRate') +
+                (typeof row.totals.cacheHitRate === 'number' ? ' ' + row.totals.cacheHitRate + '%' : ''),
+            ),
+          ),
+        ),
+        h(
+          'svg',
+          { viewBox: '0 0 ' + width + ' ' + height, width: '100%', height: 170, preserveAspectRatio: 'none' },
+          ...series.map((item) =>
+            h('path', { key: item.key, d: path(item.get), fill: 'none', stroke: item.color, strokeWidth: 1.8, strokeLinejoin: 'round' }),
+          ),
+          rateLine
+            ? h('path', { d: rateLine, fill: 'none', stroke: '#c58bff', strokeWidth: 1.4, strokeDasharray: '4 3' })
+            : null,
+        ),
+        h(
+          'div',
+          { style: { ...style.meta, display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 } },
+          h('span', null, t('total') + ' ' + row.totals.tokensText + ' tokens'),
+          h('span', null, t('kpi.cost') + ' ' + fmtMoney(row.totals.costUsd)),
+        ),
+      )
+    }
+
     function QuotaNexusSection() {
       const [snapshot, setSnapshot] = useState(null)
       const [error, setError] = useState(null)
@@ -753,6 +998,7 @@ window.__ModuleLoader__.load({
       const [usageRange, setUsageRange] = useState('day')
       const [usage, setUsage] = useState(null)
       const [calendar, setCalendar] = useState(null)
+      const [distMetric, setDistMetric] = useState('tokens')
 
       useEffect(() => {
         void api(`/api/usage?range=${usageRange}`)
@@ -1249,6 +1495,70 @@ window.__ModuleLoader__.load({
           (usage?.providers ?? []).every((row) => row.totals.requests === 0)
             ? h('div', { style: style.note }, t('noUsage'))
             : null,
+        ),
+        h(
+          'div',
+          { style: { display: 'flex', flexDirection: 'column', gap: 10, borderTop: '1px solid var(--dsw-alias-border-l1)', paddingTop: 12 } },
+          h(
+            'div',
+            { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 } },
+            h('div', { style: { fontSize: 12, fontWeight: 600, color: 'var(--dsw-alias-label-primary)' } }, t('usageDetail')),
+            h(
+              'div',
+              { style: { display: 'flex', gap: 6 } },
+              ...['tokens', 'cost'].map((metric) =>
+                h(
+                  'button',
+                  {
+                    key: metric,
+                    type: 'button',
+                    style: metric === distMetric ? style.tabActive : style.tab,
+                    onClick: () => setDistMetric(metric),
+                  },
+                  metric === 'cost' ? t('metric.cost') : t('metric.tokens'),
+                ),
+              ),
+            ),
+          ),
+          (usage?.providers ?? []).some((row) => row.totals.requests > 0)
+            ? h(
+                'div',
+                { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 10 } },
+                ...(usage?.providers ?? []).filter((row) => row.totals.requests > 0).flatMap((row) => [
+                  h(DistributionCard, {
+                    key: row.providerId + '-models',
+                    title: row.label + ' · ' + t('dist.models'),
+                    metric: distMetric,
+                    t,
+                    items: (row.costByModel ?? []).map((entry) => ({
+                      name: entry.model,
+                      requests: entry.requests || 0,
+                      tokens: entry.tokens || 0,
+                      costUsd: entry.costUsd || 0,
+                      listCostUsd: entry.listCostUsd || 0,
+                    })),
+                  }),
+                  (row.endpoints ?? []).length
+                    ? h(DistributionCard, {
+                        key: row.providerId + '-endpoints',
+                        title: row.label + ' · ' + t('dist.endpoints'),
+                        metric: distMetric,
+                        t,
+                        items: (row.endpoints ?? []).map((entry) => ({
+                          name: entry.endpoint,
+                          requests: entry.requests || 0,
+                          tokens: entry.tokens || 0,
+                          costUsd: entry.costUsd || 0,
+                          listCostUsd: entry.listCostUsd || 0,
+                        })),
+                      })
+                    : null,
+                ]),
+              )
+            : h('div', { style: style.note }, t('noUsage')),
+          ...(usage?.providers ?? []).filter((row) => row.totals.requests > 0).map((row) =>
+            h(TrendCard, { key: row.providerId + '-trend', row, t }),
+          ),
         ),
         alerts.length
           ? h(
