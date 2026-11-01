@@ -2860,7 +2860,7 @@ class AgiFederated {
       used += line.length + 1
     }
     const projectBank = this.bankForSession(sid, 'project')
-    const bankRecall = this.bm25Recall(query, 4, null, projectBank).filter((item) => item.source !== 'auto:tool-error')
+    const bankRecall = this.bm25Recall(query, 4, null, projectBank, 0.05).filter((item) => item.source !== 'auto:tool-error')
     const projectLines = []
     for (const item of bankRecall) {
       const line = `- [${item.kind}] ${item.title}: ${item.summary}`
@@ -2880,7 +2880,7 @@ class AgiFederated {
     return text
   }
 
-  bm25Recall(query, topK, excludeIds, source = this.memory.clues) {
+  bm25Recall(query, topK, excludeIds, source = this.memory.clues, minScore = this.config.memory.recallMinScore) {
     const limit = Math.max(0, Math.min(50, Math.trunc(finiteNumber(topK, 0))))
     if (limit === 0) return []
     const queryTokens = uniqueTokens(query)
@@ -2919,7 +2919,7 @@ class AgiFederated {
         score += idf * ((frequency * (k1 + 1)) / Math.max(1e-9, denominator))
       }
       if (score <= 0) continue
-      if (score < this.config.memory.recallMinScore) continue
+      if (score < minScore) continue
       scored.push({ score, document })
     }
     scored.sort((left, right) => right.score - left.score || right.document.clue.seq - left.document.clue.seq)
@@ -3926,7 +3926,7 @@ class AgiFederated {
         const sid = asString(args?.session_id) || asString(exec?.agent?.id) || this.lastSessionId
         const scope = ['project', 'global', 'all'].includes(args?.scope) ? args.scope : 'project'
         const bank = this.bankForSession(sid, scope)
-        const results = this.bm25Recall(asString(args?.query), Math.trunc(finiteNumber(args?.limit, 8)), null, bank)
+        const results = this.bm25Recall(asString(args?.query), Math.trunc(finiteNumber(args?.limit, 8)), null, bank, 0.05)
           .filter((item) => /error|fail|lesson|错误|失败|教训/i.test(asString(args?.query)) || item.source !== 'auto:tool-error')
           .map((item) => ({
             id: asString(item.id),
@@ -3964,7 +3964,7 @@ class AgiFederated {
         let record = args?.id ? this.memory.bank.get(asString(args.id)) : null
         if (!record && args?.query) {
           const bank = this.bankForSession(sid, 'project')
-          const hit = this.bm25Recall(asString(args.query), 1, null, bank)[0]
+          const hit = this.bm25Recall(asString(args.query), 1, null, bank, 0.05)[0]
           if (hit) record = this.memory.bank.get(hit.id)
         }
         if (!record) return { found: false }
