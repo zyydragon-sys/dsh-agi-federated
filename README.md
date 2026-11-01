@@ -14,7 +14,7 @@ This repository ships more than one DSH bundle. The root is `dsh-agi-federated`;
 | Path | Bundle | What it is |
 |---|---|---|
 | `/` | `dsh-agi-federated` | The federated AGI layer described below. |
-| [`plugins/dsh-quota-nexus`](plugins/dsh-quota-nexus) | `dsh-quota-nexus` | Multi-provider quota pool: provider registry UI, O(1) lease scheduling with an 8-account budget, split 429/5xx breakers with credential fuse, write-behind usage ledger, and 0s SSE quota telemetry with 80/90/95% alerts. |
+| [`plugins/dsh-quota-nexus`](plugins/dsh-quota-nexus) | `dsh-quota-nexus` **v1.1.0** | Multi-provider quota pool: provider registry UI (OpenAI-compatible, Anthropic Messages incl. custom `base_url` relays, Gemini), O(1) lease scheduling with an 8-account budget, split 429/5xx breakers with credential fuse, write-behind usage ledger, and 0s SSE quota telemetry with 80/90/95% alerts. Adds a left-sidebar panel entry beside Settings. |
 
 Publishing local edits to GitHub (no git needed on this machine):
 
@@ -25,14 +25,14 @@ node scripts/publish.mjs --plugin dsh-quota-nexus
 
 ## What it does
 
-- **Hot Memory** 鈥?a bounded, byte-stable prompt snapshot per session.
-- **Clue Store + BM25** 鈥?regex-distilled summaries, keywords, seed tokens, and anchors; no transcript storage and no LLM calls.
-- **Surface checkpoint compaction** 鈥?old messages are removed from the model-visible surface with a constant-length `[AGI_CHECKPOINT]` node; no summarization model call.
-- **Staged skills** 鈥?writes go to `staged/`; promotion is deferred to idle/session-end review.
-- **Evidence gate** 鈥?every `write`/`edit` claim is cross-checked against a per-session index of tool parameter and output anchors (400 records), with a five-step false-positive ladder.
-- **Usage monitor** 鈥?dual-channel token accounting (live estimate + official usage settlement), provider balance refresh every second, monthly-budget breaker for `spendOnly` providers, and a floating status window.
-- **Zero trust** 鈥?workspace credential required for federated mutations; every deny/ask is appended to a hash-chained audit log.
-- **Federation seams** 鈥?JEPA world model, CUV value/conflict scorer, and mp-rcp quorum arbiter are mounted as advisory, default-allow seams.
+- **Hot Memory** — a bounded, byte-stable prompt snapshot per session.
+- **Clue Store + BM25** — regex-distilled summaries, keywords, seed tokens, and anchors; no transcript storage and no LLM calls.
+- **Surface checkpoint compaction** — old messages are removed from the model-visible surface with a constant-length `[AGI_CHECKPOINT]` node; no summarization model call.
+- **Staged skills** — writes go to `staged/`; promotion is deferred to idle/session-end review.
+- **Evidence gate** — every `write`/`edit` claim is cross-checked against a per-session index of tool parameter and output anchors (400 records), with a five-step false-positive ladder.
+- **Usage monitor** — dual-channel token accounting (live estimate + official usage settlement), provider balance refresh every second, monthly-budget breaker for `spendOnly` providers, and a floating status window.
+- **Zero trust** — workspace credential required for federated mutations; every deny/ask is appended to a hash-chained audit log.
+- **Federation seams** — JEPA world model, CUV value/conflict scorer, and mp-rcp quorum arbiter are mounted as advisory, default-allow seams.
 
 ## Left sidebar
 
