@@ -2711,6 +2711,30 @@ class AgiFederated {
     return map
   }
 
+  fallbackBankSearch(bank, query, limit = 8) {
+    const q = asString(query).toLowerCase().trim()
+    if (!q) return []
+    const tokens = uniqueTokens(q)
+    const allowLessons = /error|fail|lesson|错误|失败|教训/i.test(q)
+    const out = []
+    for (const record of bank.values()) {
+      if (!allowLessons && record.source === 'auto:tool-error') continue
+      const text = (record.title + ' ' + record.summary + ' ' + record.content + ' ' + (record.tags || []).join(' ')).toLowerCase()
+      if (!text.includes(q) && !tokens.some((token) => text.includes(token))) continue
+      out.push({
+        id: record.id,
+        kind: record.kind,
+        title: record.title,
+        summary: record.summary,
+        source: record.source,
+        score: 0.01,
+        links: this.bankLinks(record, 4).map((link) => ({ id: asString(link.id), title: asString(link.title), score: finiteNumber(link.score, 0) })),
+      })
+      if (out.length >= limit) break
+    }
+    return out
+  }
+
   bankLinks(record, limit = 5) {
     if (!record) return []
     const tags = new Set(record.tags || [])
@@ -3926,8 +3950,9 @@ class AgiFederated {
         const sid = asString(args?.session_id) || asString(exec?.agent?.id) || this.lastSessionId
         const scope = ['project', 'global', 'all'].includes(args?.scope) ? args.scope : 'project'
         const bank = this.bankForSession(sid, scope)
-        const results = this.bm25Recall(asString(args?.query), Math.trunc(finiteNumber(args?.limit, 8)), null, bank, 0.01)
+        let results = this.bm25Recall(asString(args?.query), Math.trunc(finiteNumber(args?.limit, 8)), null, bank, 0.01)
           .filter((item) => /error|fail|lesson|错误|失败|教训/i.test(asString(args?.query)) || item.source !== 'auto:tool-error')
+        if (results.length === 0) results = this.fallbackBankSearch(bank, asString(args?.query), Math.trunc(finiteNumber(args?.limit, 8)))
           .map((item) => ({
             id: asString(item.id),
             kind: asString(item.kind, 'fact'),
@@ -3964,7 +3989,7 @@ class AgiFederated {
         let record = args?.id ? this.memory.bank.get(asString(args.id)) : null
         if (!record && args?.query) {
           const bank = this.bankForSession(sid, 'project')
-          const hit = this.bm25Recall(asString(args.query), 1, null, bank, 0.01)[0]
+          const hit = this.bm25Recall(asString(args.query), 1, null, bank, 0.01)[0] || this.fallbackBankSearch(bank, asString(args.query), 1)[0]
           if (hit) record = this.memory.bank.get(hit.id)
         }
         if (!record) return { found: false }
