@@ -245,6 +245,13 @@ const VENDOR_CATALOG = Object.freeze({
     // 官方余额接口：GET /user/balance（Bearer），响应 balance_infos[].total_balance。
     // 文档：https://api-docs.deepseek.com/api/get-user-balance/
     balance: { baseUrl: 'https://api.deepseek.com', path: '/user/balance' },
+    // 官方模型目录：GET https://api.deepseek.com/models（实测 200，data[].id）。
+    modelsUrl: 'https://api.deepseek.com/models',
+    // 官方充值/用量入口（社区实践：公开的 dsh-deepseek-balance 插件 README 记为 top_up）。
+    billing: {
+      rechargeUrl: 'https://platform.deepseek.com/top_up',
+      usageUrl: 'https://platform.deepseek.com/usage',
+    },
   },
   openai: {
     label: 'OpenAI',
@@ -273,6 +280,8 @@ const VENDOR_CATALOG = Object.freeze({
     baseUrl: 'https://api.minimaxi.com/v1',
     models: ['MiniMax-M2', 'abab6.5s-chat'],
     keyEnv: 'MINIMAX_API_KEY',
+    // 控制台套餐/充值页（由操作者提供）。
+    billing: { rechargeUrl: 'https://platform.minimax.cn/console/plan' },
   },
   'moonshot-cn': {
     label: 'Moonshot（国内）',
@@ -376,6 +385,94 @@ const balanceUrlOf = (record) => {
   const config = vendor.balance
   if (!config?.path) return null
   return joinUrl(config.baseUrl || record.balanceBaseUrl || vendor.baseUrl, config.path)
+}
+
+/** 模型目录 URL：provider 覆盖 → 厂商目录 → 按 baseUrl 推导（去掉 /messages 后拼 /models）。 */
+const modelsUrlOf = (record) => {
+  if (!record) return null
+  if (typeof record.modelsUrl === 'string' && record.modelsUrl.trim()) return record.modelsUrl.trim()
+  const vendor = vendorOf(record)
+  if (typeof vendor.modelsUrl === 'string' && vendor.modelsUrl) return vendor.modelsUrl
+  const base = String(record.baseUrl || vendor.baseUrl || '').replace(/\/messages\/?$/i, '').replace(/\/+$/, '')
+  return base ? `${base}/models` : null
+}
+
+/** 解析模型目录：兼容 OpenAI / Anthropic 的 data[].id 与 Gemini 的 models[].name。 */
+const parseModelList = (payload) => {
+  if (!payload || typeof payload !== 'object') return []
+  const rows = Array.isArray(payload.data) ? payload.data : Array.isArray(payload.models) ? payload.models : []
+  const out = []
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue
+    const id = typeof row.id === 'string' ? row.id : typeof row.name === 'string' ? row.name.replace(/^models\//, '') : ''
+    if (!id) continue
+    out.push({
+      id,
+      name: typeof row.display_name === 'string' ? row.display_name : typeof row.name === 'string' ? row.name : null,
+      contextWindow: Number.isFinite(Number(row.context_window)) ? Number(row.context_window) : null,
+      maxOutput: Number.isFinite(Number(row.max_output_tokens)) ? Number(row.max_output_tokens) : null,
+      createdAt: typeof row.created_at === 'string' ? row.created_at : null,
+    })
+  }
+  return out
+}
+
+/** 套餐描述归一化：只接受已知字段，未知键丢弃。 */
+const PLAN_KINDS = ['payg', 'subscription']
+const sanitizePlan = (input) => {
+  if (!input || typeof input !== 'object') return null
+  const kind = PLAN_KINDS.includes(input.kind) ? input.kind : null
+  if (!kind) return null
+  const limit = Number.isFinite(Number(input.limit)) && Number(input.limit) > 0 ? Number(input.limit) : null
+  const unit = input.unit === 'tokens' ? 'tokens' : 'requests'
+  const periodMs =
+    Number.isFinite(Number(input.periodMs)) && Number(input.periodMs) >= 60_000 ? Number(input.periodMs) : null
+  const anchorAt = Number.isFinite(Number(input.anchorAt)) ? Number(input.anchorAt) : null
+  return { kind, limit, unit, periodMs, anchorAt }
+}
+
+/** 套餐视图：订阅用「声明限额 + 本地周期用量」算剩余与重置倒计时；按量只展示类型。 */
+const planViewOf = (record, rt) => {
+  const plan = record?.plan
+  if (!plan?.kind) return null
+  const now = wallNow()
+  const periodMs = Number(plan.periodMs) || null
+  const anchorAt = Number(plan.anchorAt) || null
+  let resetsInMs = 0
+  if (plan.kind === 'subscription' && periodMs && anchorAt) {
+    const elapsed = Math.max(0, now - anchorAt)
+    resetsInMs = periodMs - (elapsed % periodMs)
+  }
+  const used = rt?.usage
+    ? plan.unit === 'tokens'
+      ? rt.usage.tokens
+      : rt.usage.requests
+    : null
+  const limit = Number(plan.limit) || null
+  return {
+    kind: plan.kind,
+    unit: plan.unit ?? 'requests',
+    limit,
+    used,
+    remaining: limit !== null && used !== null ? Math.max(0, limit - used) : null,
+    periodMs,
+    resetsInMs,
+    resetsAt: resetsInMs > 0 ? new Date(now + resetsInMs).toISOString() : null,
+    source: limit !== null ? 'declared-plan + local-usage' : 'declared-plan',
+  }
+}
+
+/** 充值入口：provider 可覆盖，否则用厂商目录里的官方入口；没有就返回 null。 */
+const rechargeUrlOf = (record) => {
+  if (!record) return null
+  const direct = record.rechargeUrl ?? vendorOf(record).billing?.rechargeUrl
+  return typeof direct === 'string' && direct.trim() ? direct.trim() : null
+}
+
+const usageUrlOf = (record) => {
+  if (!record) return null
+  const direct = record.usageUrl ?? vendorOf(record).billing?.usageUrl
+  return typeof direct === 'string' && direct.trim() ? direct.trim() : null
 }
 
 /** 解析余额响应：优先 DeepSeek 的 balance_infos[]，其次常见的扁平字段。 */
@@ -1188,6 +1285,9 @@ class QuotaNexusRuntime {
       lastAuthFailureWall: 0,
       inflight: 0,
       balance: null,
+      balanceInFlight: false,
+      balanceLastAt: 0,
+      usage: { requests: 0, tokens: 0, sinceWall: wallNow(), resetsAtWall: 0 },
       quota: {
         remainingRequests: null,
         limitRequests: null,
@@ -1260,6 +1360,10 @@ class QuotaNexusRuntime {
         requestRatio !== undefined && tokenRatio !== undefined
           ? Math.min(requestRatio, tokenRatio)
           : requestRatio ?? tokenRatio ?? quota.ratio
+    }
+    // 官方给的窗口重置时间：用于「套餐/额度重置倒计时」展示。
+    if (parsed.resetMs !== undefined && parsed.resetMs > 0) {
+      rt.usage.resetsAtWall = wallNow() + Math.round(parsed.resetMs)
     }
 
     if (parsed.retryAfterMs !== undefined && parsed.retryAfterMs > 0) {
@@ -1432,6 +1536,22 @@ class QuotaNexusRuntime {
       quotaObservedAt: rt?.quota?.observedAt ?? null,
       balance: rt?.balance ?? null,
       balanceUrl: balanceUrlOf(record),
+      rechargeUrl: rechargeUrlOf(record),
+      usageUrl: usageUrlOf(record),
+      modelsUrl: modelsUrlOf(record),
+      modelsSyncedAt: record.modelsSyncedAt ?? null,
+      modelsCount: Array.isArray(record.models) ? record.models.length : 0,
+      modelsPreview: (Array.isArray(record.models) ? record.models : []).slice(0, 5),
+      modelMeta: record.modelMeta ?? null,
+      plan: planViewOf(record, rt),
+      usage: rt?.usage
+        ? {
+            requests: rt.usage.requests,
+            tokens: rt.usage.tokens,
+            since: new Date(rt.usage.sinceWall).toISOString(),
+            resetsInMs: Math.max(0, Math.round((rt.usage.resetsAtWall || 0) - wallNow())),
+          }
+        : null,
       lastProbeAt: rt?.lastProbeWall ? new Date(rt.lastProbeWall).toISOString() : null,
       lastProbeStatus: rt?.lastProbeStatus ?? null,
       lastProbeHttp: rt?.lastProbeHttp ?? 0,
@@ -1497,6 +1617,10 @@ class QuotaNexusRuntime {
       ...(typeof input?.balanceUrl === 'string' && input.balanceUrl.trim()
         ? { balanceUrl: input.balanceUrl.trim() }
         : {}),
+      ...(typeof input?.rechargeUrl === 'string' && input.rechargeUrl.trim()
+        ? { rechargeUrl: input.rechargeUrl.trim() }
+        : {}),
+      ...(sanitizePlan(input?.plan) ? { plan: sanitizePlan(input.plan) } : {}),
       credential: secret
         ? { type: input?.credentialType === 'oauth' ? 'oauth' : 'api-key', secret, masked: maskSecret(secret) }
         : { type: 'none', secret: '', masked: '' },
@@ -1539,6 +1663,17 @@ class QuotaNexusRuntime {
     if (typeof patch?.balanceUrl === 'string') {
       if (patch.balanceUrl.trim()) next.balanceUrl = patch.balanceUrl.trim()
       else delete next.balanceUrl
+    }
+    if (typeof patch?.rechargeUrl === 'string') {
+      if (patch.rechargeUrl.trim()) next.rechargeUrl = patch.rechargeUrl.trim()
+      else delete next.rechargeUrl
+    }
+    if (patch?.plan && typeof patch.plan === 'object') {
+      const plan = sanitizePlan({ ...patch.plan, anchorAt: patch.plan.anchorAt ?? Date.now() })
+      if (plan && plan.kind === 'subscription' && !plan.anchorAt) plan.anchorAt = Date.now()
+      if (plan) next.plan = plan
+    } else if (patch?.plan === null || patch?.plan === '') {
+      delete next.plan
     }
     if (typeof patch?.apiKey === 'string' && patch.apiKey.trim()) {
       const secret = patch.apiKey.trim()
@@ -1662,9 +1797,15 @@ class QuotaNexusRuntime {
    * 官方余额接口（目前 DeepSeek 已确认：GET /user/balance）。
    * 失败只记录 warning，不影响健康判定——余额接口挂掉不代表推理不可用。
    */
-  async fetchBalance(rt) {
+  async fetchBalance(rt, { force = false } = {}) {
     const url = balanceUrlOf(rt.record)
     if (!url) return null
+    // 快刷保护：同一账号 800ms 内不重复请求（0s 语义由 SSE 推送承担，不是狂打官方接口）。
+    const now = wallNow()
+    if (rt.balanceInFlight) return rt.balance ?? null
+    if (!force && now - (rt.balanceLastAt ?? 0) < 800) return rt.balance ?? null
+    rt.balanceInFlight = true
+    rt.balanceLastAt = now
     try {
       const response = await fetch(url, {
         method: 'GET',
@@ -1696,7 +1837,42 @@ class QuotaNexusRuntime {
     } catch (error) {
       this.warn('balance_failed', `${maskAccount(rt.record)} 余额查询失败：${error?.message ?? error}`)
       return null
+    } finally {
+      rt.balanceInFlight = false
     }
+  }
+
+  /** 订阅套餐的窗口滚动：进入新周期就把本地周期计数清零并推送。 */
+  rollPlanWindows() {
+    const now = wallNow()
+    for (const rt of this.scheduler.accounts.values()) {
+      const plan = rt.record?.plan
+      if (!plan || plan.kind !== 'subscription') continue
+      const periodMs = Number(plan.periodMs) || 0
+      const anchorAt = Number(plan.anchorAt) || 0
+      if (!periodMs || !anchorAt) continue
+      const windowStart = anchorAt + Math.floor(Math.max(0, now - anchorAt) / periodMs) * periodMs
+      if (rt.usage.sinceWall < windowStart) {
+        rt.usage.requests = 0
+        rt.usage.tokens = 0
+        rt.usage.sinceWall = now
+        rt.usage.resetsAtWall = windowStart + periodMs
+        this.publish('plan', { id: rt.id, windowStart, resetsAtWall: rt.usage.resetsAtWall })
+      }
+    }
+  }
+
+  /** 快刷：余额 + 套餐窗口，默认 5s 一轮；结果经 SSE 立即推给已打开的页面。 */
+  async refreshHot() {
+    await this.ready
+    this.rollPlanWindows()
+    const out = []
+    for (const rt of this.scheduler.accounts.values()) {
+      if (!balanceUrlOf(rt.record)) continue
+      const balance = await this.fetchBalance(rt)
+      out.push({ id: rt.id, account: maskAccount(rt.record), amount: balance?.amount ?? null, currency: balance?.currency ?? null })
+    }
+    return out
   }
 
   async probeAll() {
@@ -1732,13 +1908,21 @@ class QuotaNexusRuntime {
       })
     }
 
+    // 本地周期统计：官方不给额度头时，至少让「用了多少」有据可查。
+    rt.usage.requests += 1
+    if (outcome.usage && typeof outcome.usage === 'object') {
+      const input = Number(outcome.usage.input_tokens ?? outcome.usage.prompt_tokens ?? 0)
+      const output = Number(outcome.usage.output_tokens ?? outcome.usage.completion_tokens ?? 0)
+      if (Number.isFinite(input) && input > 0) rt.usage.tokens += input
+      if (Number.isFinite(output) && output > 0) rt.usage.tokens += output
+    }
+
     this.ledger.push({
       at: new Date().toISOString(),
       account: maskAccount(rt.record),
       provider: rt.record.vendorId,
       model: entry.token?.model ?? null,
-      status,
-      verdict,
+      status,      verdict,
       latencyMs,
       usage: outcome.usage ?? null,
       remainingRatio: rt.quota.ratio ?? null,
@@ -1858,6 +2042,64 @@ class QuotaNexusRuntime {
       version: 1,
       pending: Object.fromEntries(this.pendingOAuth),
     })
+  }
+
+  /**
+   * 与官方模型目录同步：成功即覆盖 provider.models 并记录同步时间与元数据。
+   * 只读上游 /models，不猜测模型能力。
+   */
+  async syncModels(id) {
+    await this.ready
+    const record = this.providers.get(id)
+    if (!record) return { ok: false, code: 'quota_nexus_not_found', message: `未找到供应商 ${id}` }
+    const url = modelsUrlOf(record)
+    if (!url) return { ok: false, code: 'quota_nexus_models_url_missing', message: '该供应商没有可用的模型目录地址' }
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: { accept: 'application/json', ...authHeaders(record) },
+        signal: timeoutSignal(this.config.requestTimeoutMs),
+      })
+      if (!response.ok) {
+        return {
+          ok: false,
+          code: 'quota_nexus_models_unavailable',
+          httpStatus: response.status,
+          message: `${record.label} 模型目录返回 HTTP ${response.status}（${url}）`,
+        }
+      }
+      const models = parseModelList(await response.json())
+      if (!models.length) {
+        return { ok: false, code: 'quota_nexus_models_empty', message: `${record.label} 模型目录为空（${url}）` }
+      }
+      const trimmed = models.slice(0, 60)
+      const next = {
+        ...record,
+        models: trimmed.map((entry) => entry.id),
+        modelMeta: Object.fromEntries(
+          trimmed.map((entry) => [
+            entry.id,
+            { name: entry.name, contextWindow: entry.contextWindow, maxOutput: entry.maxOutput },
+          ]),
+        ),
+        modelsSyncedAt: new Date().toISOString(),
+        modelsUrl: url,
+      }
+      this.providers.set(id, next)
+      const rt = this.scheduler.accounts.get(id)
+      if (rt) rt.record = next
+      await this.saveProviders()
+      this.publish('models', { id, count: next.models.length })
+      return { ok: true, providerId: id, count: next.models.length, models: next.models, syncedAt: next.modelsSyncedAt, url }
+    } catch (error) {
+      return { ok: false, code: 'quota_nexus_models_network', message: `模型目录不可达：${error?.message ?? error}` }
+    }
+  }
+
+  async syncAllModels() {
+    const results = []
+    for (const id of this.providers.keys()) results.push(await this.syncModels(id))
+    return { ok: results.some((entry) => entry.ok), results }
   }
 
   /* ---------------- 本机客户端快照发现（只扫描，不静默导入） ---------------- */
@@ -2046,6 +2288,8 @@ class QuotaNexusRuntime {
       disposers.push(() => clearInterval(timer))
     }
     every(this.config.probeIntervalMs, () => this.probeAll())
+    // 余额/套餐快刷：让「0s 实时」由服务端轮询 + SSE 推送达成，页面无需刷新。
+    every(this.config.balanceRefreshMs, () => this.refreshHot())
     every(30_000, () => this.scheduler.refreshSets())
     if (this.config.discoveryAutoScan) {
       const timer = setTimeout(() => {
@@ -2189,6 +2433,27 @@ class HttpSurface {
         const body = await readJsonBody(req)
         if (body?.id) writeJson(res, 200, await this.runtime.probe(String(body.id)))
         else writeJson(res, 200, { ok: true, results: await this.runtime.probeAll() })
+      } catch (error) {
+        writeJson(res, 400, { ok: false, code: 'quota_nexus_bad_request', message: error?.message ?? String(error) })
+      }
+    })
+
+    add('POST', '/api/providers/refresh', async (req, res) => {
+      if (!this.guard(req, res)) return
+      try {
+        const balances = await this.runtime.refreshHot()
+        writeJson(res, 200, { ok: true, at: new Date().toISOString(), balances })
+      } catch (error) {
+        writeJson(res, 400, { ok: false, code: 'quota_nexus_refresh_failed', message: error?.message ?? String(error) })
+      }
+    })
+
+    add('POST', '/api/providers/sync-models', async (req, res) => {
+      if (!this.guard(req, res)) return
+      try {
+        const body = await readJsonBody(req)
+        if (body?.id) writeJson(res, 200, await this.runtime.syncModels(String(body.id)))
+        else writeJson(res, 200, await this.runtime.syncAllModels())
       } catch (error) {
         writeJson(res, 400, { ok: false, code: 'quota_nexus_bad_request', message: error?.message ?? String(error) })
       }
