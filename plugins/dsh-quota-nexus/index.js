@@ -481,8 +481,22 @@ const autoModelPreview = (record) => {
   return out
 }
 
-/** 套餐描述归一化：只接受已知字段，未知键丢弃。 */
+/**
+ * 套餐描述归一化：支持「多窗口配额」（例如 5h 限额 + 周限额，对齐官网订阅配额的展示）。
+ * 未知键丢弃，数值越界回落 null。
+ */
 const PLAN_KINDS = ['payg', 'subscription']
+const MAX_PLAN_WINDOWS = 4
+
+const sanitizeWindow = (input) => {
+  if (!input || typeof input !== 'object') return null
+  const id = typeof input.id === 'string' && input.id.trim() ? input.id.trim().slice(0, 16) : null
+  const limitMs = Number.isFinite(Number(input.limitMs)) && Number(input.limitMs) >= 60_000 ? Number(input.limitMs) : null
+  const limit = Number.isFinite(Number(input.limit)) && Number(input.limit) > 0 ? Number(input.limit) : null
+  if (!id || !limitMs) return null
+  return { id, limitMs, limit }
+}
+
 const sanitizePlan = (input) => {
   if (!input || typeof input !== 'object') return null
   const kind = PLAN_KINDS.includes(input.kind) ? input.kind : null
@@ -492,37 +506,78 @@ const sanitizePlan = (input) => {
   const periodMs =
     Number.isFinite(Number(input.periodMs)) && Number(input.periodMs) >= 60_000 ? Number(input.periodMs) : null
   const anchorAt = Number.isFinite(Number(input.anchorAt)) ? Number(input.anchorAt) : null
-  return { kind, limit, unit, periodMs, anchorAt }
+  const windows = Array.isArray(input.windows)
+    ? input.windows.map(sanitizeWindow).filter(Boolean).slice(0, MAX_PLAN_WINDOWS)
+    : []
+  return { kind, limit, unit, periodMs, anchorAt, ...(windows.length ? { windows } : {}) }
 }
 
-/** 套餐视图：订阅用「声明限额 + 本地周期用量」算剩余与重置倒计时；按量只展示类型。 */
+/** 窗口内的用量：按本地事件环统计（请求数或 tokens）。 */
+const windowUsage = (events, windowStart, unit) => {
+  let requests = 0
+  let tokens = 0
+  for (const event of events) {
+    if (event.t < windowStart) continue
+    requests += 1
+    tokens += Number(event.tokens) || 0
+  }
+  return { requests, tokens, value: unit === 'tokens' ? tokens : requests }
+}
+
+/**
+ * 套餐视图：对齐官网「订阅配额」的形态——每个窗口一行（5h 限额 / 周限额），
+ * 给出 已用 / 总额度 / 已用百分比 / 重置倒计时。数据 = 声明限额 + 本地事件统计，
+ * 官方若在响应头里给了重置时间则优先采用。
+ */
 const planViewOf = (record, rt) => {
   const plan = record?.plan
   if (!plan?.kind) return null
   const now = wallNow()
-  const periodMs = Number(plan.periodMs) || null
   const anchorAt = Number(plan.anchorAt) || null
-  let resetsInMs = 0
-  if (plan.kind === 'subscription' && periodMs && anchorAt) {
-    const elapsed = Math.max(0, now - anchorAt)
-    resetsInMs = periodMs - (elapsed % periodMs)
+  const events = Array.isArray(rt?.events) ? rt.events : []
+  const unit = plan.unit ?? 'requests'
+
+  const windows = []
+  const declared = Array.isArray(plan.windows) && plan.windows.length
+    ? plan.windows
+    : plan.periodMs
+      ? [{ id: 'window', limitMs: Number(plan.periodMs), limit: Number(plan.limit) || null }]
+      : []
+
+  for (const window of declared) {
+    const limitMs = Number(window.limitMs) || 0
+    const limit = Number(window.limit) || null
+    if (!limitMs) continue
+    const windowStart = anchorAt
+      ? anchorAt + Math.floor(Math.max(0, now - anchorAt) / limitMs) * limitMs
+      : now - limitMs
+    const used = windowUsage(events, windowStart, unit)
+    const resetsAt = windowStart + limitMs
+    windows.push({
+      id: window.id,
+      limitMs,
+      limit,
+      used: used.value,
+      usedPct: limit ? Math.min(100, Math.round((used.value / limit) * 1000) / 10) : null,
+      remaining: limit !== null ? Math.max(0, limit - used.value) : null,
+      resetsAt: resetsAt > now ? new Date(resetsAt).toISOString() : null,
+      resetsInMs: Math.max(0, resetsAt - now),
+    })
   }
-  const used = rt?.usage
-    ? plan.unit === 'tokens'
-      ? rt.usage.tokens
-      : rt.usage.requests
-    : null
-  const limit = Number(plan.limit) || null
+
+  // 兼容旧的单窗口字段
+  const first = windows[0] ?? null
   return {
     kind: plan.kind,
-    unit: plan.unit ?? 'requests',
-    limit,
-    used,
-    remaining: limit !== null && used !== null ? Math.max(0, limit - used) : null,
-    periodMs,
-    resetsInMs,
-    resetsAt: resetsInMs > 0 ? new Date(now + resetsInMs).toISOString() : null,
-    source: limit !== null ? 'declared-plan + local-usage' : 'declared-plan',
+    unit,
+    limit: Number(plan.limit) || null,
+    used: first ? first.used : null,
+    remaining: first ? first.remaining : null,
+    periodMs: Number(plan.periodMs) || null,
+    resetsInMs: first ? first.resetsInMs : 0,
+    resetsAt: first ? first.resetsAt : null,
+    windows,
+    source: windows.length ? 'declared-plan + local-events' : 'declared-plan',
   }
 }
 
@@ -1355,6 +1410,8 @@ class QuotaNexusRuntime {
       balanceInFlight: false,
       balanceLastAt: 0,
       usage: { requests: 0, tokens: 0, sinceWall: wallNow(), resetsAtWall: 0 },
+      // 本地用量事件环：多窗口配额（5h/周）都从这里统计，最多保留 30 天。
+      events: [],
       quota: {
         remainingRequests: null,
         limitRequests: null,
@@ -1990,6 +2047,10 @@ class QuotaNexusRuntime {
 
     // 本地周期统计：官方不给额度头时，至少让「用了多少」有据可查。
     rt.usage.requests += 1
+    rt.events.push({ t: wallNow(), model: entry.token?.model ?? null, tokens: Number(outcome.usage?.total_tokens ?? 0) || 0 })
+    const cutoff = wallNow() - 30 * 864e5
+    while (rt.events.length > 5000) rt.events.shift()
+    while (rt.events.length > 0 && rt.events[0].t < cutoff) rt.events.shift()
     if (outcome.usage && typeof outcome.usage === 'object') {
       const input = Number(outcome.usage.input_tokens ?? outcome.usage.prompt_tokens ?? 0)
       const output = Number(outcome.usage.output_tokens ?? outcome.usage.completion_tokens ?? 0)
@@ -2266,6 +2327,87 @@ class QuotaNexusRuntime {
       result.note = `首选 ${decision.label} 当前被 ${decision.blockedBy} 挡住`
     }
     return result
+  }
+
+  /**
+   * 用量详情（对齐官网「订阅套餐用量详情」）：按 range 聚合本地事件环。
+   * day = 今日按小时；week = 近 7 天按天；month = 近 30 天按天。
+   * 数据只来自真实经过插件的请求（report()），没有调用就是 0 —— 不编造。
+   */
+  usageSummary({ range = 'day', providerId } = {}) {
+    const now = wallNow()
+    const midnight = new Date()
+    midnight.setHours(0, 0, 0, 0)
+    const todayStart = midnight.getTime()
+    const hourly = range === 'day'
+    const bucketMs = hourly ? 3_600_000 : 86_400_000
+    const bucketCount = hourly ? 24 : range === 'week' ? 7 : 30
+    const from = hourly ? todayStart : todayStart - (bucketCount - 1) * 86_400_000
+    const bucketBase = hourly ? todayStart : from
+
+    const scale = (value) => {
+      if (value >= 1_000_000) return (value / 1_000_000).toFixed(2) + 'M'
+      if (value >= 1_000) return (value / 1_000).toFixed(2) + 'K'
+      return String(value)
+    }
+
+    const records = providerId
+      ? [this.providers.get(providerId)].filter(Boolean)
+      : [...this.providers.values()]
+
+    const providers = []
+    for (const record of records) {
+      const rt = this.scheduler.accounts.get(record.id)
+      const events = (rt && Array.isArray(rt.events) ? rt.events : []).filter((event) => event.t >= from)
+      const models = new Map()
+      const buckets = Array.from({ length: bucketCount }, (_, index) => ({
+        at: new Date(bucketBase + index * bucketMs).toISOString(),
+        requests: 0,
+        tokens: 0,
+      }))
+      const days = new Map()
+      let tokens = 0
+      for (const event of events) {
+        const eventTokens = Number(event.tokens) || 0
+        tokens += eventTokens
+        const key = event.model || '(unknown)'
+        const entry = models.get(key) || { model: key, requests: 0, tokens: 0 }
+        entry.requests += 1
+        entry.tokens += eventTokens
+        models.set(key, entry)
+        const index = Math.min(bucketCount - 1, Math.max(0, Math.floor((event.t - bucketBase) / bucketMs)))
+        buckets[index].requests += 1
+        buckets[index].tokens += eventTokens
+        const dayKey = new Date(event.t).toISOString().slice(0, 10)
+        days.set(dayKey, (days.get(dayKey) || 0) + eventTokens)
+      }
+      const dayValues = [...days.values()]
+      providers.push({
+        providerId: record.id,
+        label: record.label,
+        vendorId: record.vendorId,
+        totals: {
+          requests: events.length,
+          tokens,
+          tokensText: scale(tokens),
+          activeDays: days.size,
+          peakDayTokens: dayValues.length ? Math.max(...dayValues) : 0,
+          peakDayText: scale(dayValues.length ? Math.max(...dayValues) : 0),
+        },
+        models: [...models.values()].sort((a, b) => b.tokens - a.tokens),
+        buckets,
+        plan: planViewOf(record, rt),
+      })
+    }
+
+    return {
+      ok: true,
+      range: hourly ? 'day' : range === 'week' ? 'week' : 'month',
+      from: new Date(from).toISOString(),
+      to: new Date(now).toISOString(),
+      bucketMs,
+      providers,
+    }
   }
 
   /* ---------------- 本机客户端快照发现（只扫描，不静默导入） ---------------- */
@@ -2602,6 +2744,19 @@ class HttpSurface {
       } catch (error) {
         writeJson(res, 400, { ok: false, code: 'quota_nexus_bad_request', message: error?.message ?? String(error) })
       }
+    })
+
+    add('GET', '/api/usage', async (req, res) => {
+      if (!this.guard(req, res)) return
+      const url = new URL(req.url ?? '/', 'http://127.0.0.1')
+      writeJson(
+        res,
+        200,
+        this.runtime.usageSummary({
+          range: url.searchParams.get('range') ?? 'day',
+          providerId: url.searchParams.get('providerId') ?? undefined,
+        }),
+      )
     })
 
     add('POST', '/api/models/select', async (req, res) => {
