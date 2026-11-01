@@ -1375,6 +1375,11 @@ class QuotaNexusRuntime {
     this.modelRotation = { enabled: false, intervalMs: 300000, order: [], cursor: 0, lastAppliedAt: null, lastError: null, timer: null }
     /** 计价展示币种：官方价目表是 USD，内部永远保留 USD，显示层按汇率换算。 */
     this.currency = { code: 'CNY', usdToCnyRate: 7.1, updatedAt: new Date().toISOString(), source: 'manual' }
+    /** 真实用量采集统计：calls=经过 llm 的请求数，captured=成功写入事件环的次数。 */
+    this.usageCapture = { calls: 0, captured: 0, lastError: null }
+    /** 被打了用量采集补丁的目标（实例/原型），停用时逐个还原。 */
+    this.usageCaptureTargets = []
+    this.usageCaptureOriginals = []
     this.modelLastUsed = new Map()
     this.inbox = []
     this.lastPublishWall = 0
@@ -2041,6 +2046,160 @@ class QuotaNexusRuntime {
     return routes
   }
 
+  /**
+   * 接管 llm 的出站流，采集真实用量（输入/输出/缓存 token）。
+   * 只做旁路观察：所有 chunk 原样透传，不改写、不吞掉、不重排。
+   * 之所以包装 streamWithRegistration 而不是 stream：prepareCall() 路径也走它，
+   * 这样 agent loop 的预检调用同样能被观测到。
+   */
+  attachLlmUsageCapture() {
+    const llm = this.ctx.get?.('llm')
+    if (!llm || typeof llm.streamWithRegistration !== 'function') return { attached: false }
+    const targets = [llm]
+    try {
+      const proto = Object.getPrototypeOf(llm)
+      if (proto && typeof proto.streamWithRegistration === 'function') targets.push(proto)
+    } catch {
+      /* 某些代理对象不可取原型，忽略 */
+    }
+      const patched = []
+      for (const target of targets) {
+        if (target.__quotaNexusUsageCapture) {
+          patched.push('already')
+          continue
+        }
+        const original = target.streamWithRegistration
+        const runtime = this
+        this.usageCaptureTargets.push(target)
+        this.usageCaptureOriginals.push({ target, original })
+        target.streamWithRegistration = function patchedStreamWithRegistration(options, prepared) {
+          const stream = original.call(this, options, prepared)
+          runtime.usageCapture.calls += 1
+          return (async function* observed() {
+            let usage = null
+            try {
+              for await (const chunk of stream) {
+                usage = mergeUsage(usage, extractUsage(chunk))
+                yield chunk
+              }
+            } catch (error) {
+              runtime.usageCapture.lastError = String(error?.message ?? error)
+              throw error
+            } finally {
+              if (usage && (usage.input || usage.output || usage.cached)) {
+                try {
+                  runtime.recordLlmUsage(options, usage)
+                  runtime.usageCapture.captured += 1
+                } catch (error) {
+                  runtime.usageCapture.lastError = String(error?.message ?? error)
+                }
+              }
+            }
+          })()
+        }
+        target.__quotaNexusUsageCapture = true
+        patched.push('patched')
+      }
+      return { attached: true, patched }
+  }
+
+  /** 还原 llm 用量采集补丁（停用/卸载时必须调用，避免原型上残留闭包）。 */
+  detachLlmUsageCapture() {
+    for (const entry of this.usageCaptureOriginals) {
+      try {
+        entry.target.streamWithRegistration = entry.original
+        delete entry.target.__quotaNexusUsageCapture
+      } catch {
+        /* 目标已不可写，忽略 */
+      }
+    }
+    this.usageCaptureOriginals = []
+    this.usageCaptureTargets = []
+  }
+
+  /**
+   * 把一次真实 llm 调用写入本插件的事件环（与 report() 同结构）。
+   * 路由 → 厂商映射：deepseek-* → deepseek；minimax-cn → minimax-cn。
+   */
+  recordLlmUsage(options, usage) {
+    const route = String(options?.provider ?? '')
+    const model = String(options?.model ?? '')
+    if (!route || !model) return false
+    const vendorId = vendorIdOfRoute(route)
+    if (!vendorId) return false
+    const record = [...this.providers.values()].find((entry) => entry.vendorId === vendorId)
+    if (!record) return false
+    const rt = this.scheduler.accounts.get(record.id)
+    if (!rt) return false
+    const input = Number(usage.input) || 0
+    const output = Number(usage.output) || 0
+    const cached = Number(usage.cached) || 0
+    const total = Number(usage.total) || input + output
+    rt.events.push({
+      t: wallNow(),
+      model,
+      tokens: total,
+      input,
+      output,
+      cached,
+      session: null,
+      endpoint: route,
+      source: 'llm',
+    })
+    const cutoff = wallNow() - 30 * 864e5
+    while (rt.events.length > 5000) rt.events.shift()
+    while (rt.events.length > 0 && rt.events[0].t < cutoff) rt.events.shift()
+    rt.usage.requests += 1
+    rt.usage.tokens += total
+    this.ledger.push({
+      at: new Date().toISOString(),
+      account: maskAccount(record),
+      provider: vendorId,
+      model,
+      status: 200,
+      verdict: 'success',
+      latencyMs: 0,
+      usage: { input_tokens: input, output_tokens: output, cached_tokens: cached, total_tokens: total },
+      tokens: total,
+      source: 'llm',
+    })
+    this.publish('usage', { providerId: record.id, model, tokens: total })
+    return true
+  }
+
+  /** 诊断 llm 服务结构与可用拦截点（只读，不影响运行）。 */
+  async llmDiagnostics() {
+    const llm = this.ctx.get?.('llm')
+    if (!llm) return { available: false }
+    let protoKeys = []
+    try {
+      protoKeys = Object.getOwnPropertyNames(Object.getPrototypeOf(llm)).slice(0, 60)
+    } catch {
+      protoKeys = []
+    }
+    let effectNames = []
+    try {
+      const effects = this.ctx.effects ?? this.ctx._effects ?? {}
+      effectNames = Object.keys(effects).slice(0, 80)
+    } catch {
+      effectNames = []
+    }
+    let providers = []
+    try {
+      providers = llm.listProviders().map((provider) => provider.id)
+    } catch {
+      providers = []
+    }
+    return {
+      available: true,
+      ownKeys: Object.keys(llm).slice(0, 50),
+      protoKeys,
+      effectNames,
+      providers,
+      hasWaterfall: typeof this.ctx.waterfall === 'function',
+    }
+  }
+
   /** 读取一条路由的能力特征（reasoning / 上下文 / 多模态），失败时降级为最小能力。 */
   async capabilitiesOf(provider, model) {
     const llm = this.ctx.get?.('llm')
@@ -2150,7 +2309,9 @@ class QuotaNexusRuntime {
     if (typeof enabled === 'boolean') this.modelRotation.enabled = enabled
     if (this.modelRotation.timer) { clearInterval(this.modelRotation.timer); this.modelRotation.timer = null }
     if (this.modelRotation.enabled) {
-      const timer = setInterval(() => { void this.applyRotationStep() }, this.modelRotation.intervalMs)
+      const timer = setInterval(() => {
+        this.applyRotationStep().catch((error) => this.warn('rotation_failed', `自动轮转异常：${error?.message ?? error}`))
+      }, this.modelRotation.intervalMs)
       timer.unref?.()
       this.modelRotation.timer = timer
     }
@@ -2994,6 +3155,7 @@ class QuotaNexusRuntime {
         },
         strategy: this.config.strategy,
         rotation: rotationView,
+        usageCapture: { ...this.usageCapture },
         counts,
         ledger: this.ledger.snapshot(),
         alerts: this.inbox.slice(0, 20),
@@ -3050,7 +3212,7 @@ class QuotaNexusRuntime {
     const every = (ms, fn) => {
       const timer = setInterval(() => {
         try {
-          void fn()
+          void Promise.resolve(fn()).catch((error) => this.warn('timer_failed', `定时任务异常：${error?.message ?? error}`))
         } catch (error) {
           this.warn('timer_failed', `定时任务异常：${error?.message ?? error}`)
         }
@@ -3058,8 +3220,15 @@ class QuotaNexusRuntime {
       timer.unref?.()
       disposers.push(() => clearInterval(timer))
     }
+    // 真实用量采集：旁路观察 llm 出站流，把 token 用量写进事件环。
+    try {
+      const attached = this.attachLlmUsageCapture()
+      if (attached?.attached) this.warn('usage_capture', '已接管 llm 用量采集')
+    } catch (error) {
+      this.warn('usage_capture_failed', String(error?.message ?? error))
+    }
     if (this.config.rotationEnabled) {
-      void this.setRotation({ enabled: true, intervalMs: this.config.rotationIntervalMs })
+      void this.setRotation({ enabled: true, intervalMs: this.config.rotationIntervalMs }).catch((error) => this.warn('rotation_start_failed', `启动自动轮转失败：${error?.message ?? error}`))
     }
     every(this.config.probeIntervalMs, () => this.probeAll())
     // 余额/套餐快刷：让「0s 实时」由服务端轮询 + SSE 推送达成，页面无需刷新。
@@ -3087,6 +3256,7 @@ class QuotaNexusRuntime {
 
   async stop() {
     try {
+      this.detachLlmUsageCapture()
       await this.ledger.stop()
       await this.stateWriter?.stop()
       await this.persistState()
@@ -3223,6 +3393,11 @@ class HttpSurface {
           providerId: url.searchParams.get('providerId') ?? undefined,
         }),
       )
+    })
+
+    add('GET', '/api/llm-diagnostics', async (req, res) => {
+      if (!this.guard(req, res)) return
+      writeJson(res, 200, { ok: true, diagnostics: await this.runtime.llmDiagnostics() })
     })
 
     add('GET', '/api/currency', async (req, res) => {
@@ -3549,6 +3724,56 @@ const selectModelTool = (runtime) => ({
 /* ------------------------------------------------------------------ *
  * 插件入口
  * ------------------------------------------------------------------ */
+
+/** llm 路由 → 本插件厂商。 */
+const vendorIdOfRoute = (route) => {
+  const id = String(route ?? '').toLowerCase()
+  if (id.startsWith('deepseek')) return 'deepseek'
+  if (id.startsWith('minimax')) return 'minimax-cn'
+  if (id.startsWith('moonshot')) return 'moonshot-cn'
+  if (id.startsWith('zhipu') || id.startsWith('glm')) return 'zhipu-cn'
+  if (id.startsWith('qwen') || id.startsWith('dashscope')) return 'qwen-cn'
+  if (id.startsWith('openrouter')) return 'openrouter'
+  if (id.startsWith('openai')) return 'openai'
+  if (id.startsWith('anthropic')) return 'anthropic'
+  if (id.startsWith('gemini') || id.startsWith('google')) return 'gemini'
+  if (id.startsWith('ollama')) return 'ollama'
+  return null
+}
+
+/** 从任意 chunk 里宽松地找 token 用量字段（不依赖具体协议字段名）。 */
+const extractUsage = (value, depth = 0) => {
+  if (!value || typeof value !== 'object' || depth > 4) return null
+  const found = { input: 0, output: 0, cached: 0, total: 0 }
+  let hit = false
+  const visit = (node, level) => {
+    if (!node || typeof node !== 'object' || level > 4) return
+    for (const [key, raw] of Object.entries(node)) {
+      const name = key.toLowerCase()
+      if (typeof raw === 'number' && Number.isFinite(raw)) {
+        if (/^(input|prompt)_?tokens$/.test(name)) { found.input = Math.max(found.input, raw); hit = true; continue }
+        if (/^(output|completion)_?tokens$/.test(name)) { found.output = Math.max(found.output, raw); hit = true; continue }
+        if (/^(cached|cache_?read|cache_?hit|prompt_?cache_?hit)_?tokens$/.test(name)) { found.cached = Math.max(found.cached, raw); hit = true; continue }
+        if (/^total_?tokens$/.test(name)) { found.total = Math.max(found.total, raw); hit = true; continue }
+      }
+      if (raw && typeof raw === 'object') visit(raw, level + 1)
+    }
+  }
+  visit(value, depth)
+  return hit ? found : null
+}
+
+/** 合并两份用量（取各字段最大值，兼容累计与增量两种上报）。 */
+const mergeUsage = (current, next) => {
+  if (!next) return current
+  if (!current) return next
+  return {
+    input: Math.max(current.input, next.input),
+    output: Math.max(current.output, next.output),
+    cached: Math.max(current.cached, next.cached),
+    total: Math.max(current.total, next.total),
+  }
+}
 
 export function apply(ctx, rawConfig) {
   const config = normalizeConfig(rawConfig)
