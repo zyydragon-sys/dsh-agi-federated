@@ -59,6 +59,7 @@ const GROUPS = {
       'scripts/publish.mjs',
       'scripts/monitor.mjs',
       'scripts/watch.mjs',
+      'scripts/ci-doctor.mjs',
       '.github/workflows/ci.yml',
     ],
   },
