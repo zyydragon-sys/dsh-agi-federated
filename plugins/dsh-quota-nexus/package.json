@@ -1,6 +1,6 @@
 {
   "name": "dsh-quota-nexus",
-  "version": "1.19.2",
+  "version": "1.20.1",
   "private": true,
   "type": "module",
   "description": "Multi-provider model quota nexus for DeepSeek Harness: provider registry, O(1) lease scheduler, write-behind ledger, breaker, SSE quota telemetry, capability-aware model rotation and real token/cost analytics.",
@@ -43,7 +43,8 @@
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",
-    "README.md"
+    "README.md",
+    "scripts/*.mjs"
   ],
   "dsh": {
     "bundle": {
@@ -56,5 +57,8 @@
         "@deepseek-ai/dsh-client-ui-conversation"
       ]
     }
+  },
+  "scripts": {
+    "test": "node scripts/selftest.mjs"
   }
 }
