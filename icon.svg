@@ -1,0 +1,12 @@
+﻿<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="AGI Federated">
+  <rect width="64" height="64" rx="14" fill="#16243a"/>
+  <path d="M32 9 51 20v24L32 55 13 44V20L32 9Z" fill="none" stroke="#6ea8ff" stroke-width="2.4"/>
+  <path d="M32 9v17M32 38v17M13 20l13 7M38 37l13 7M51 20l-13 7M26 37l-13 7" stroke="#6ea8ff" stroke-width="1.8" opacity=".85"/>
+  <circle cx="32" cy="32" r="4" fill="#6ea8ff"/>
+  <circle cx="32" cy="17" r="2.4" fill="#b9d5ff"/>
+  <circle cx="32" cy="47" r="2.4" fill="#b9d5ff"/>
+  <circle cx="17" cy="24" r="2.4" fill="#b9d5ff"/>
+  <circle cx="47" cy="24" r="2.4" fill="#b9d5ff"/>
+  <circle cx="17" cy="40" r="2.4" fill="#b9d5ff"/>
+  <circle cx="47" cy="40" r="2.4" fill="#b9d5ff"/>
+</svg>
