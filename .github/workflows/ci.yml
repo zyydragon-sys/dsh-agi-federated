@@ -6,17 +6,23 @@ on:
     paths:
       - 'plugins/dsh-quota-nexus/**'
       - 'package.json'
+      - 'scripts/**'
       - '.github/workflows/ci.yml'
   pull_request:
     paths:
       - 'plugins/dsh-quota-nexus/**'
+      - 'scripts/**'
       - '.github/workflows/ci.yml'
   workflow_dispatch:
 
 jobs:
   selftest:
-    name: dsh-quota-nexus self-test
-    runs-on: ubuntu-latest
+    name: self-test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     defaults:
       run:
         working-directory: plugins/dsh-quota-nexus
@@ -39,3 +45,21 @@ jobs:
 
       - name: Self test (no third-party deps)
         run: node scripts/selftest.mjs
+
+  drift:
+    name: remote matches local
+    # Read-only comparison of the checked-out tree against api.github.com.
+    # Skipped on pull_request: a fork's token cannot read the upstream tree reliably.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Compare local tree with GitHub
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/monitor.mjs
