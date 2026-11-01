@@ -413,14 +413,16 @@ window.__ModuleLoader__.load({
           registerAll();
         }, 900);
 
-        ctx.effect(() => () => {
-          disposed = true;
-          if (retryTimer) clearTimeout(retryTimer);
-          try { sidebarDispose?.(); } catch {}
-          try { mainDispose?.(); } catch {}
-          sidebarDispose = null;
-          mainDispose = null;
-        });
+        if (typeof ctx.effect === 'function') {
+          ctx.effect(() => () => {
+            disposed = true;
+            if (retryTimer) clearTimeout(retryTimer);
+            try { sidebarDispose?.(); } catch {}
+            try { mainDispose?.(); } catch {}
+            sidebarDispose = null;
+            mainDispose = null;
+          });
+        }
       },
     };
   },
