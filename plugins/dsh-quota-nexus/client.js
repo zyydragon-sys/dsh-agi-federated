@@ -1,6 +1,6 @@
 /**
  * dsh-quota-nexus — Client half (Web)。
- * build: 1.7.0 (auto-model-route) — 该标记随发布变化，用于让浏览器取到新模块而不是旧缓存。
+ * build: 1.8.0 (provider-rotation) — 该标记随发布变化，用于让浏览器取到新模块而不是旧缓存。
  *
  * 在“设置 → Quota Nexus”里渲染卡片列表式供应商管理：
  *   每行 = 提供商名称 + 状态点（已连接/离线/异常）+ 右侧“编辑”“删除”；
@@ -93,6 +93,7 @@ window.__ModuleLoader__.load({
         'models': '模型',
         'modelsNone': '尚未同步模型目录',
         'autoSwitch': '自动切换',
+        'rotateAmong': '轮转 {n} 家供应商',
         'syncedAt': '同步于',
         'syncModels': '同步模型',
         'usageWindow': '本周期',
@@ -179,6 +180,7 @@ window.__ModuleLoader__.load({
         'models': 'Models',
         'modelsNone': 'Model catalog not synced yet',
         'autoSwitch': 'Auto-route',
+        'rotateAmong': 'rotating across {n} providers',
         'syncedAt': 'synced',
         'syncModels': 'Sync models',
         'usageWindow': 'This window',
@@ -718,6 +720,13 @@ window.__ModuleLoader__.load({
             `● ${t('live')}`,
           ),
           h('span', { style: style.chip }, `providers ${counts.providers ?? 0}`),
+          providers.length > 1
+            ? h(
+                'span',
+                { style: { ...style.chip, color: 'var(--dsw-alias-brand-primary)' } },
+                t('rotateAmong').replace('{n}', String(providers.length)),
+              )
+            : null,
           h('span', { style: style.chip }, `active ${counts.active ?? 0}`),
           h('span', { style: style.chip }, `cooldown ${counts.cooling ?? 0}`),
           h('span', { style: style.chip }, `re-login ${counts.needsRelogin ?? 0}`),
