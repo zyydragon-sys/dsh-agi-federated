@@ -1,0 +1,6 @@
+﻿{
+  "meta": {
+    "title": "AGI Federated",
+    "description": "Bounded Hot Memory, BM25 recall, deterministic compaction, evidence gate, usage monitor, and advisory federation seams for DeepSeek Harness."
+  }
+}
