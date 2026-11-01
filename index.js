@@ -2852,7 +2852,7 @@ class AgiFederated {
       used += line.length + 1
     }
     const projectBank = this.bankForSession(sid, 'project')
-    const bankRecall = this.bm25Recall(query, 4, null, projectBank)
+    const bankRecall = this.bm25Recall(query, 4, null, projectBank).filter((item) => item.source !== 'auto:tool-error')
     const projectLines = []
     for (const item of bankRecall) {
       const line = `- [${item.kind}] ${item.title}: ${item.summary}`
@@ -2922,6 +2922,7 @@ class AgiFederated {
       tags: document.clue.tags || [],
       summary: document.clue.summary,
       sessionId: document.clue.sessionId,
+      source: document.clue.source || 'manual',
       score: round(score, 4),
     }))
   }
@@ -3918,11 +3919,13 @@ class AgiFederated {
         const scope = ['project', 'global', 'all'].includes(args?.scope) ? args.scope : 'project'
         const bank = this.bankForSession(sid, scope)
         const results = this.bm25Recall(asString(args?.query), Math.trunc(finiteNumber(args?.limit, 8)), null, bank)
+          .filter((item) => /error|fail|lesson|错误|失败|教训/i.test(asString(args?.query)) || item.source !== 'auto:tool-error')
           .map((item) => ({
             id: asString(item.id),
             kind: asString(item.kind, 'fact'),
             title: asString(item.title),
             summary: asString(item.summary),
+            source: asString(item.source, 'manual'),
             score: finiteNumber(item.score, 0),
             links: this.bankLinks(this.memory.bank.get(item.id), 4).map((link) => ({
               id: asString(link.id),
