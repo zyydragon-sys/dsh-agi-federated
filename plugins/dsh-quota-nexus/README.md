@@ -1,6 +1,6 @@
 # dsh-quota-nexus
 
-**Version:** 1.19.2 · **Bundle:** `plugins/dsh-quota-nexus` in
+**Version:** 1.20.1 · **Bundle:** `plugins/dsh-quota-nexus` in
 [`zyydragon-sys/dsh-agi-federated`](https://github.com/zyydragon-sys/dsh-agi-federated)
 
 多模型供应商额度池 + O(1) 租约调度 + 熔断恢复 + 0s 额度遥测。作为 DeepSeek Harness 的
@@ -77,6 +77,17 @@ dsh --profile $env:DSH_PROFILE --dump-config
 
 校验连通性时，`/models` 返回 404/405 会被判定为“可达但无探测接口”而不是失败，避免中转端点被误判；401/403 仍然判定为凭据拒绝。
 
+## 自动测试
+
+```bash
+npm test        # = node scripts/selftest.mjs，无第三方依赖
+```
+
+覆盖 16 条：配置归一化与夹取、模块可加载、USD→CNY 换算、DeepSeek 高峰/空闲价、
+MiniMax 人民币价折算、未知模型不瞎编价格、路由→厂商映射、用量提取（OpenAI/Anthropic
+两种字段命名）、用量合并、能力相容（reasoning 不降级 / 上下文下限 / vision 严格档）、
+用量聚合与缓存命中率、空闲保护下跳过轮转。失败即以非 0 退出。
+
 ## 维护性（版本约束）
 
 - `engines.dsh`: `>=0.2.1-rc.0 <1.0.0`；`engines.node`: `>=20.0.0`。
@@ -87,6 +98,14 @@ dsh --profile $env:DSH_PROFILE --dump-config
   解析 schemastery，缺少时降级而不是安装失败。
 - 版本号语义：主版本用于可能影响既有配置的改动，次版本用于新增能力，
   修订号用于修复；每次发布同步 `CHANGELOG.md` 与仓库副本。
+
+## 成本口径
+
+- 唯一真值源是官方价目表快照：DeepSeek 用 USD（`api-docs.deepseek.com`），
+  MiniMax 用 CNY（`platform.minimax.cn/docs/pricing/overview`），内部统一折算成 USD 存储。
+- 折算参考汇率 `CNY_PER_USD_REF = 7.1`；展示层再按用户设置汇率换回 CNY。
+  若用户把汇率改成 X，显示金额 = 官方人民币价 × (X / 7.1)，这是换算口径差异，不是价格错误。
+- 官方没有列价的模型（如 `MiniMax-M2.7-highspeed`）**不给成本数字**，返回 `null`，不猜。
 
 ## 币种与汇率
 
