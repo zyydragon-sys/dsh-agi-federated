@@ -428,8 +428,9 @@ const classifyModel = (id, meta) => {
   const text = `${id} ${meta?.name ?? ''}`.toLowerCase()
   const contextWindow = Number(meta?.contextWindow) || 0
   let tier = 'balanced'
+  // 便宜档优先判定：产品名里的版本号（如 V4.1）不能当成"强模型"信号。
   if (/flash|mini|lite|small|turbo|fast|air|nano|haiku/.test(text)) tier = 'fast'
-  if (/pro|ultra|max|opus|reason|think|\br1\b|v4/.test(text)) tier = 'strong'
+  else if (/pro|ultra|max|opus|reason|think|\br1\b/.test(text)) tier = 'strong'
   return {
     id,
     tier,
