@@ -94,6 +94,7 @@ window.__ModuleLoader__.load({
       const needle = query.trim().toLowerCase();
       const matches = (value) => !needle || String(value || '').toLowerCase().includes(needle);
       const clues = (d.memory?.clues || []).filter((clue) => matches(clue.summary) || matches((clue.keywords || []).join(' ')));
+      const bank = (d.memory?.bank || []).filter((item) => matches(item.title) || matches(item.summary) || matches((item.tags || []).join(' ')));
       const evidence = (d.evidence?.recent || []).filter((record) => matches(record.tool) || matches(record.summary));
       const skills = (d.skills?.list || []).filter((skill) => matches(skill.name) || matches((skill.tags || []).join(' ')));
       const titles = { runtime: '运行状态', memory: '记忆与证据', skills: '技能与审计', federation: '联邦 seams', health: '信任自检' };
@@ -124,7 +125,12 @@ window.__ModuleLoader__.load({
         body = h(React.Fragment, null,
           h('h4', { style: { margin: '0 0 8px', fontSize: 13 } }, 'Hot Memory'),
           h('pre', { style: { margin: '0 0 16px', padding: 12, borderRadius: 8, background: 'var(--dsw-alias-bg-layer-2)', whiteSpace: 'pre-wrap', fontSize: 12, lineHeight: 1.55, overflow: 'auto' } }, d.memory?.text || '（空）'),
-          h('h4', { style: { margin: '0 0 8px', fontSize: 13 } }, 'Clue Store · ' + clues.length),
+          h('h4', { style: { margin: '0 0 8px', fontSize: 13 } }, 'Project Memory · ' + bank.length),
+          ...(bank.length ? bank.slice().reverse().map((item) => h('div', {
+            key: item.id,
+            style: { padding: '8px 0', borderBottom: '1px solid var(--dsw-alias-border-l1)', fontSize: 12 },
+          }, h('div', { style: { fontWeight: 600 } }, '[' + item.kind + '] ' + item.title), h('div', { style: { color: 'var(--dsw-alias-label-secondary)', marginTop: 3 } }, item.summary || '—'), h('div', { style: { color: 'var(--dsw-alias-label-secondary)', marginTop: 4 } }, (item.tags || []).join(' · ') + (item.links?.length ? '  ↳ ' + item.links.map((link) => link.title).join(' · ') : '')))) : h('p', { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 13 } }, '暂无项目记忆')),
+          h('h4', { style: { margin: '16px 0 8px', fontSize: 13 } }, 'Clue Store · ' + clues.length),
           ...(clues.length ? clues.map((clue, index) => h('div', {
             key: index,
             style: { padding: '8px 0', borderBottom: '1px solid var(--dsw-alias-border-l1)', fontSize: 12 },
@@ -271,6 +277,7 @@ window.__ModuleLoader__.load({
           ),
           h(Card, { title: '记忆与证据', onClick: () => openDetail('memory') },
             h(Row, { label: 'Hot Memory', value: '24 条上限 · 字节稳定' }),
+            h(Row, { label: 'Project Memory', value: (data.memory?.bank || 0) + ' 页' }),
             h(Row, { label: 'Evidence', value: (evidence.records || 0) + ' 条 / ' + (evidence.sessions || 0) + ' 个会话' }),
             h(Row, { label: 'Clue Store', value: 'BM25 长尾召回' }),
             h(Row, { label: 'Checkpoint', value: '确定性表面压缩' }),
