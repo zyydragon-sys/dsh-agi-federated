@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.6.2 — 2026-11-01
+
+- CI 红灯不再自生自灭：新增 `file-ticket` job（`needs: [selftest, drift]`、`if: failure()`），
+  用 `actions/github-script` 按标题去重地开/追加一张带 `darwin-ticket` 标签的 issue，正文含
+  分支、提交、运行链接与本地复现命令。只会开工单，**绝不会自动晋级技能**。
+- 新增 `scripts/ci-doctor.mjs`：把 `darwin-ticket` issue 拉回本地（分支/提交/运行/复现命令），
+  支持 `--json`、`--write-inbox`（写到 workspace 的 `.dsh/ci-inbox.json`，不污染 drift）、
+  `--fixture` 离线解析。缺 token 时直接报错而不是静默返回空列表。
+- 处置链路固定为人工闸门：`darwin_scan → darwin_forge → darwin_eval`（P2 门 ≥80%）
+  → 人工 `darwin_promote {confirm:true}` → 可用 `darwin_rollback` 回滚。
+
 ## 1.6.1 — 2026-11-01
 
 - CI self-test now runs on a three-OS matrix (`ubuntu-latest`, `windows-latest`,
