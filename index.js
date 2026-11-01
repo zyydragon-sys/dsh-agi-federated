@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { CONFIG_VERSION, DEFAULT_CONFIG, normalizeConfig, validateConfig } from './schemas/config.js'
 
 const PLUGIN_ID = 'dsh-agi-federated'
-const PLUGIN_VERSION = '1.3.0'
+const PLUGIN_VERSION = '1.4.0'
 const MEMORY_FILE = 'memory.json'
 const EVIDENCE_FILE = 'evidence.json'
 const USAGE_FILE = 'usage.json'
@@ -3561,6 +3561,14 @@ class AgiFederated {
         model: model.model || '',
         peak: isDeepSeekPeak(),
         source: 'https://api-docs.deepseek.com/quick_start/pricing',
+      },
+      health: {
+        ok: !this.degraded,
+        auditChain: this.audit.broken ? 'broken' : 'ok',
+        evidenceGate: this.config.evidence.enabled ? this.config.evidence.gateMode : 'off',
+        memoryBounded: this.memory.clues.size <= this.config.memory.clueMaxItems,
+        modelTracked: Boolean(model.provider && model.model),
+        contextLevel,
       },
       providers,
       streaming: {
