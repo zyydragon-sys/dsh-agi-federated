@@ -1,7 +1,7 @@
 ﻿# dsh-agi-federated — Architecture Design
 
 **Author:** txcdragon  
-**Version:** 1.0.0  
+**Version:** 1.0.1  
 **Target:** DeepSeek Harness `0.2.1-rc.5` (compatible range `>=0.2.1-rc.5 <0.3.0`)  
 **License:** not declared by the package; choose one before public redistribution.
 
@@ -124,6 +124,10 @@ Each session keeps at most 64 distilled records. A record contains:
 }
 ```
 
+Only `text` blocks are ingested. Hidden `reasoning` blocks and raw `tool-call`
+arguments are excluded at the content extraction boundary, so a model's internal
+reasoning and a shell command's credential never become memory.
+
 The prompt snapshot is a pure function of the current records, the configured
 limits, and the last query. It is sorted by `importance DESC, seq DESC, id ASC`,
 rendered without timestamps, and cached by a monotonically increasing memory
@@ -237,6 +241,9 @@ most 400 records:
 ```
 
 The raw tool output is discarded after anchors and a summary are extracted.
+Tool arguments are redacted before the pending-call map and again before any
+evidence record is built; a credential pasted into a shell command is never
+persisted in `evidence.json`.
 
 ### 9.2 Claim extraction
 
@@ -414,6 +421,8 @@ the runtime to four files and avoids inline-script CSP issues.
 | memory | snapshot header, distilled clue, BM25 result |
 | compaction | 4-node replacement, placeholder exactly 160 chars |
 | evidence gate | deny without evidence; allow after `12 tests passed` tool result |
+| memory privacy | `contentText` omits `reasoning` and `tool-call`; explicit opt-in test passes |
+| evidence privacy | tool arguments are redacted before the pending-call map |
 | usage | 1000/500 official usage, DeepSeek cost 0.00082 USD |
 | UI | injected script parses with `new Function`; route returns 200 |
 | activation | `agi_status` returns `ok: true`, `degraded: false`; `/agi-federated/status` returns HTTP 200 |
@@ -447,5 +456,6 @@ The repository was created at 2026-11-01 17:41 Asia/Shanghai. The catalog
 requires a repository at least one day old, so the directory pull request is
 eligible from 2026-11-02 17:41 Asia/Shanghai. The prepared entry, README,
 architecture document, and archive live under `market-submission-txcdragon/`.
+
 
 
