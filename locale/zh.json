@@ -1,0 +1,6 @@
+﻿{
+  "meta": {
+    "title": "AGI Federated",
+    "description": "为 DeepSeek Harness 提供有界热记忆、BM25 召回、确定性压缩、证据闸门、用量监控与联邦 seams。"
+  }
+}
