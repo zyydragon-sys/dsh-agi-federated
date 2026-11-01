@@ -97,9 +97,11 @@ window.__ModuleLoader__.load({
       else if (kind === 'runtime') {
         body = h(React.Fragment, null,
           h(Row, { label: '模型', value: (data.model?.provider || '—') + ' / ' + (data.model?.model || '—') }),
+          h(Row, { label: '上次请求', value: (data.lastSettlement?.usage ? (data.lastSettlement.usage.inputTokens || 0) + ' in · ' + (data.lastSettlement.usage.cacheReadTokens || 0) + ' cache · ' + (data.lastSettlement.usage.outputTokens || 0) + ' out' : '—') }),
           h(Row, { label: '上下文', value: (data.session?.contextTokens || 0).toLocaleString() + ' / ' + (data.session?.contextWindow || 0).toLocaleString() }),
           h(Row, { label: '会话费用', value: '$' + Number(data.cost?.sessionUsd || 0).toFixed(4) }),
           h(Row, { label: '本月费用', value: '$' + Number(data.cost?.monthUsd || 0).toFixed(4) }),
+          h(Row, { label: '计费时段', value: data.pricing?.peak ? 'peak · 官网价 x2' : 'off-peak · 官网价' }),
           ...(data.providers || []).map((provider) => h(Row, {
             key: provider.id,
             label: provider.label || provider.id,
@@ -216,7 +218,7 @@ window.__ModuleLoader__.load({
         h('div', { style: { display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))' } },
           h(Card, { title: '运行状态', onClick: () => openDetail('runtime') },
             h(Row, { label: '模型', value: (model.provider || '—') + ' / ' + (model.model || '—') }),
-            h(Row, { label: '本次上下文', value: (usage.contextTokens || 0).toLocaleString() + ' tokens' }),
+            h(Row, { label: '上次请求', value: (usage.contextTokens || 0).toLocaleString() + ' tokens' }),
             h(Row, { label: '会话费用', value: '$' + Number(data && data.cost && data.cost.sessionUsd ? data.cost.sessionUsd : 0).toFixed(4) }),
             h(Row, { label: 'Provider', value: (data && data.providers ? data.providers.filter((p) => p.status === 'ok').length : 0) + ' 个正常' }),
           ),
