@@ -1247,6 +1247,9 @@ class QuotaNexusRuntime {
     this.pendingOAuth = new Map()
     this.discovered = []
     this.alertDedupe = new Map()
+    // 模型轮转状态：task -> 游标；task:provider -> 最近使用时间（balanced 用）。
+    this.modelCursor = new Map()
+    this.modelLastUsed = new Map()
     this.inbox = []
     this.lastPublishWall = 0
     this.ready = this.init()
@@ -2184,8 +2187,15 @@ class QuotaNexusRuntime {
    * 简单任务落到便宜模型、困难任务落到强模型，从而省额度又保证质量。
    * 纯内存决策，不发起任何上游请求。
    */
-  selectModel({ task = 'quick', providerId } = {}) {
+  /**
+   * 任务驱动的模型自动切换：在「不同供应商的不同模型」之间轮转，
+   * 例如 quick 任务在 DeepSeek 与 MiniMax 之间交替，从而摊平额度消耗；
+   * 同时按任务能力选档（quick=便宜档，code/reasoning=强档，long=最大上下文）。
+   * 纯内存决策，不发起上游请求，也不消耗额度。
+   */
+  selectModel({ task = 'quick', providerId, strategy = 'rotate' } = {}) {
     const category = TASK_CLASSES.includes(task) ? task : 'quick'
+    const mode = strategy === 'balanced' ? 'balanced' : 'rotate'
     const records = providerId
       ? [this.providers.get(providerId)].filter(Boolean)
       : [...this.providers.values()].filter((record) => record.enabled !== false)
@@ -2209,17 +2219,52 @@ class QuotaNexusRuntime {
         quotaRatio: rt?.quota?.ratio ?? null,
       })
     }
-    candidates.sort((a, b) => Number(b.available) - Number(a.available))
-    const decision = candidates[0] ?? null
+    // 轮转只在「当前可用」的候选里进行；全都不可用时退回展示全部候选（不可选）。
+    const availablePool = candidates.filter((entry) => entry.available)
+    const pool = availablePool.length ? availablePool : candidates
+    const cursorKey = `${category}:${providerId ?? '*'}`
+    let index = 0
+    if (pool.length > 0) {
+      if (mode === 'balanced') {
+        index = pool.reduce((best, entry, at) => {
+          const stamp = this.modelLastUsed.get(`${cursorKey}:${entry.providerId}`) ?? 0
+          const bestStamp = this.modelLastUsed.get(`${cursorKey}:${pool[best].providerId}`) ?? 0
+          return stamp < bestStamp ? at : best
+        }, 0)
+      } else {
+        index = (this.modelCursor.get(cursorKey) ?? 0) % pool.length
+      }
+    }
+    const decision = pool[index] ?? null
+    if (decision) {
+      this.modelLastUsed.set(`${cursorKey}:${decision.providerId}`, wallNow())
+      if (mode === 'rotate') {
+        this.modelCursor.set(cursorKey, (index + 1) % Math.max(1, pool.length))
+      }
+    }
     const result = {
       ok: Boolean(decision?.available),
       task: category,
+      strategy: mode,
+      rotationSize: pool.length,
       candidates,
     }
-    // 只在有决策时给出 decision；无决策时给出可读的 note（两者都不使用 null，避免 schema 校验失败）。
-    if (decision) result.decision = decision
-    else result.note = records.length === 0 ? '池中没有启用的供应商' : '这些供应商都还没有同步模型目录，请先调用 sync-models'
-    if (decision && !decision.available) result.note = `首选 ${decision.label} 当前被 ${decision.blockedBy} 挡住`
+    if (decision) {
+      result.decision = {
+        ...decision,
+        rotation: {
+          index,
+          total: pool.length,
+          next: pool.length > 1 ? pool[(index + 1) % pool.length].label : null,
+        },
+      }
+    } else {
+      result.note =
+        records.length === 0 ? '池中没有启用的供应商' : '这些供应商都还没有同步模型目录，请先调用 sync-models'
+    }
+    if (decision && !decision.available) {
+      result.note = `首选 ${decision.label} 当前被 ${decision.blockedBy} 挡住`
+    }
     return result
   }
 
@@ -2563,7 +2608,10 @@ class HttpSurface {
       if (!this.guard(req, res)) return
       try {
         const body = await readJsonBody(req)
-        writeJson(res, 200, { ok: true, ...this.runtime.selectModel({ task: body?.task, providerId: body?.providerId }) })
+        writeJson(res, 200, {
+          ok: true,
+          ...this.runtime.selectModel({ task: body?.task, providerId: body?.providerId, strategy: body?.strategy }),
+        })
       } catch (error) {
         writeJson(res, 400, { ok: false, code: 'quota_nexus_bad_request', message: error?.message ?? String(error) })
       }
@@ -2760,7 +2808,7 @@ const statusTool = (runtime) => ({
 const selectModelTool = (runtime) => ({
   name: 'quota_nexus_select_model',
   description:
-    '按任务类别挑选模型与账号（纯内存决策，不发起上游请求，不消耗额度）：quick=省钱/轻任务，code=编码，reasoning=强推理，long=长上下文，vision=多模态。返回 decision（model/provider/reason/source）与全部候选；池为空或未同步模型时返回 note。',
+    '按任务类别挑选模型与账号，并在不同供应商之间轮转（纯内存决策，不发起上游请求，不消耗额度）：quick=省钱/轻任务，code=编码，reasoning=强推理，long=长上下文，vision=多模态。连续调用会依次换供应商（例如 DeepSeek ↔ MiniMax）以摊平额度；strategy=balanced 时改为挑最近最少使用的供应商。返回 decision（含 model/provider/reason/source/rotation{index,total,next}）与全部候选；池为空或未同步模型时返回 note。',
   parameters: {
     type: 'object',
     properties: {
@@ -2771,7 +2819,12 @@ const selectModelTool = (runtime) => ({
       },
       providerId: {
         type: 'string',
-        description: '可选：只在某个供应商内挑选',
+        description: '可选：只在某个供应商内挑选（此时不跨供应商轮转）',
+      },
+      strategy: {
+        type: 'string',
+        enum: ['rotate', 'balanced'],
+        description: 'rotate=按顺序轮转（默认），balanced=选最近最少使用的供应商',
       },
     },
     additionalProperties: false,
@@ -2800,7 +2853,7 @@ const selectModelTool = (runtime) => ({
     },
   },
   async execute(args) {
-    return runtime.selectModel({ task: args?.task, providerId: args?.providerId })
+    return runtime.selectModel({ task: args?.task, providerId: args?.providerId, strategy: args?.strategy })
   },
 })
 
