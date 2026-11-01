@@ -1,6 +1,6 @@
 /**
  * dsh-quota-nexus — Client half (Web)。
- * build: 1.1.0 (anthropic-protocol) — 该标记随发布变化，用于让浏览器取到新模块而不是旧缓存。
+ * build: 1.1.1 (dual-protocol) — 该标记随发布变化，用于让浏览器取到新模块而不是旧缓存。
  *
  * 在“设置 → Quota Nexus”里渲染卡片列表式供应商管理：
  *   每行 = 提供商名称 + 状态点（已连接/离线/异常）+ 右侧“编辑”“删除”；
@@ -59,6 +59,10 @@ window.__ModuleLoader__.load({
         'field.label': '显示名称',
         'field.baseUrl': 'Base URL（OpenAI 兼容协议）',
         'field.baseUrl.anthropic': 'Base URL（Anthropic Messages 协议）',
+        'field.baseUrl.both': 'Base URL（OpenAI 兼容协议 / Anthropic Messages 协议）',
+        'proto.openai': 'OpenAI 兼容：authorization: Bearer <key> · 端点写到 …/v1',
+        'proto.anthropic': 'Anthropic Messages：x-api-key + anthropic-version 2023-06-01 · 端点写到 …/v1',
+        'discoveryIdle': '尚未扫描。点“扫描本机”只列出环境变量与客户端快照里的凭据候选，不会自动导入。',
         'field.apiKey': 'API Key',
         'field.validate': '保存前校验连通性',
         'hint.anthropic':
@@ -116,6 +120,10 @@ window.__ModuleLoader__.load({
         'field.label': 'Display name',
         'field.baseUrl': 'Base URL (OpenAI compatible)',
         'field.baseUrl.anthropic': 'Base URL (Anthropic Messages)',
+        'field.baseUrl.both': 'Base URL (OpenAI compatible / Anthropic Messages)',
+        'proto.openai': 'OpenAI compatible: authorization: Bearer <key> · endpoint ends at …/v1',
+        'proto.anthropic': 'Anthropic Messages: x-api-key + anthropic-version 2023-06-01 · endpoint ends at …/v1',
+        'discoveryIdle': 'Not scanned yet. “Scan this machine” only lists credential candidates from env vars and client snapshots; nothing is imported automatically.',
         'field.apiKey': 'API Key',
         'field.validate': 'Verify connectivity before saving',
         'hint.anthropic':
@@ -157,7 +165,7 @@ window.__ModuleLoader__.load({
       { id: 'zhipu-cn', label: '智谱 GLM', baseUrl: 'https://open.bigmodel.cn/api/paas/v4' },
       { id: 'qwen-cn', label: '通义千问（兼容模式）', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
       { id: 'openrouter', label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1' },
-      { id: 'ollama', label: 'Ollama（本机）', baseUrl: 'http://127.0.0.1:11434/v1' },
+      { id: 'ollama', label: 'Ollama（本机 127.0.0.1:11434）', baseUrl: 'http://127.0.0.1:11434/v1' },
       { id: 'custom', label: '自定义 OpenAI 兼容服务', baseUrl: '' },
       { id: 'custom-anthropic', label: '自定义 Anthropic 协议服务（Messages）', baseUrl: '' },
     ]
@@ -708,7 +716,26 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { style: style.dialog, role: 'dialog', 'aria-modal': 'true' },
-          h('h3', { style: style.title }, mode === 'edit' ? t('editTitle') : t('addTitle')),
+          h(
+            'div',
+            { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 } },
+            h('h3', { style: style.title }, mode === 'edit' ? t('editTitle') : t('addTitle')),
+            h(
+              'span',
+              {
+                style: {
+                  fontSize: 10,
+                  lineHeight: 1.6,
+                  color: 'var(--dsw-alias-label-secondary)',
+                  border: '1px solid var(--dsw-alias-border-l1)',
+                  borderRadius: 999,
+                  padding: '0 8px',
+                  whiteSpace: 'nowrap',
+                },
+              },
+              'v1.1.1 · OpenAI + Anthropic',
+            ),
+          ),
           h(
             'div',
             { style: style.tabs },
@@ -762,19 +789,37 @@ window.__ModuleLoader__.load({
                 h(
                   'div',
                   { style: style.field },
-                  h(
-                    'span',
-                    { style: style.label },
-                    PROTOCOL[vendorId] === 'anthropic-messages'
-                      ? t('field.baseUrl.anthropic')
-                      : t('field.baseUrl'),
-                  ),
+                  h('span', { style: style.label }, t('field.baseUrl.both')),
                   h('input', {
                     style: style.input,
                     value: baseUrl,
                     placeholder: VENDORS.find((entry) => entry.id === vendorId)?.baseUrl ?? '',
                     onChange: (event) => setBaseUrl(event.target.value),
                   }),
+                  h(
+                    'div',
+                    { style: { display: 'flex', flexDirection: 'column', gap: 2, marginTop: 4 } },
+                    h(
+                      'div',
+                      {
+                        style: {
+                          ...style.note,
+                          opacity: PROTOCOL[vendorId] === 'anthropic-messages' ? 0.5 : 1,
+                        },
+                      },
+                      t('proto.openai'),
+                    ),
+                    h(
+                      'div',
+                      {
+                        style: {
+                          ...style.note,
+                          opacity: PROTOCOL[vendorId] === 'anthropic-messages' ? 1 : 0.5,
+                        },
+                      },
+                      t('proto.anthropic'),
+                    ),
+                  ),
                 ),
                 PROTOCOL[vendorId] === 'anthropic-messages'
                   ? h('div', { style: style.note }, t('hint.anthropic'))
@@ -854,6 +899,7 @@ window.__ModuleLoader__.load({
                   { type: 'button', style: style.primary, disabled: busy, onClick: () => void scan() },
                   t('scan'),
                 ),
+                candidates === null ? h('div', { style: style.note }, t('discoveryIdle')) : null,
                 candidates && candidates.length === 0 ? h('div', { style: style.note }, t('discoveryEmpty')) : null,
                 ...(candidates ?? []).map((candidate) =>
                   h(
