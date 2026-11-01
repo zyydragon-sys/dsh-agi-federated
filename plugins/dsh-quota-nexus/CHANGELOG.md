@@ -3,6 +3,21 @@
 The nested bundle keeps its own version, independent of the root
 `dsh-agi-federated` bundle (`plugins/dsh-quota-nexus/package.json`).
 
+## 1.9.0 — 2026-11-01
+
+- Plan windows: a subscription can declare multiple quota windows (e.g. `5h` and
+  `week`), matching the vendor console layout: each window renders its own bar,
+  `总额度 / 已用 %` and a live reset countdown (“4 小时 59 分后重置”). Usage per
+  window is computed from a bounded local event ring, so windows roll by themselves.
+- Usage details: `GET /api/usage?range=day|week|month` aggregates the event ring into
+  totals (requests, tokens, active days, peak day), per-model breakdown and hourly/
+  daily buckets. The panel shows 当日 / 近 7 天 / 近 30 天 bars per provider, and an
+  explicit empty state when no call has gone through the plugin yet.
+- Header drill-down: every stat chip (0s 实时, providers, 轮转 N 家, active, cooldown,
+  re-login, ledger) is now a button that expands a detail panel — pool path, strategy,
+  ledger counters, per-provider rows, active/cooling/re-login accounts and the model
+  rotation plan.
+
 ## 1.8.0 — 2026-11-01
 
 - Cross-provider rotation: `selectModel()` now cycles across providers instead of
