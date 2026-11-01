@@ -3632,6 +3632,47 @@ class AgiFederated {
     }
   }
 
+  async projectSkills() {
+    const root = path.join(process.env.DSH_WORKSPACE || 'D:\\Deepseek工作区', '.dsh', 'skills')
+    let entries = []
+    try {
+      entries = await fsp.readdir(root, { withFileTypes: true })
+    } catch {
+      return []
+    }
+    const skills = []
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      const file = path.join(root, entry.name, 'SKILL.md')
+      try {
+        const text = await fsp.readFile(file, 'utf8')
+        const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text)
+        const meta = {}
+        if (match) {
+          for (const line of match[1].split(/\r?\n/)) {
+            const pair = /^([A-Za-z0-9_-]+):\s*(.*)$/.exec(line)
+            if (pair) meta[pair[1]] = pair[2].trim()
+          }
+        }
+        const stat = await fsp.stat(file)
+        skills.push({
+          name: meta.name || entry.name,
+          description: meta.description || '',
+          whenToUse: meta.whenToUse || '',
+          bytes: stat.size,
+          updatedAt: stat.mtimeMs,
+          path: file,
+          permanent: true,
+          upgradeable: true,
+          origin: entry.name.startsWith('darwin-') || entry.name === 'dsh-stale-edit-recovery' ? 'darwin' : 'manual',
+        })
+      } catch {
+        // A malformed skill must not break the status endpoint.
+      }
+    }
+    return skills.sort((left, right) => left.name.localeCompare(right.name))
+  }
+
   async status(sessionId, includeDetails = false) {
     await this.ready
     const sid = asString(sessionId) || this.lastSessionId
@@ -3721,6 +3762,7 @@ class AgiFederated {
         // Detail view degrades to an empty list.
       }
     }
+    const projectSkillList = await this.projectSkills()
     const details = includeDetails
       ? {
           memory: {
@@ -3819,6 +3861,7 @@ class AgiFederated {
         clues: this.memory.clues.size,
       },
       skills: skillCounts,
+      projectSkills: projectSkillList,
       federation,
       compat: this.compat,
       audit: this.audit.snapshot(),
