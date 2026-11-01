@@ -1,6 +1,6 @@
 {
   "name": "dsh-agi-federated",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "private": true,
   "author": "txcdragon",
   "repository": {
@@ -22,23 +22,37 @@
   ],
   "exports": {
     ".": "./index.js",
-    "./schemas/config.js": "./schemas/config.js"
+    "./client": "./client.js",
+    "./schemas/config.js": "./schemas/config.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
   },
   "files": [
     "index.js",
+    "client.js",
     "cordis.patch.yml",
     "schemas/config.js",
+    "locale/*.json",
+    "icon.svg",
     "README.md",
     "ARCHITECTURE.md",
     "CHANGELOG.md",
     "MAINTENANCE.md"
   ],
+  "icon": "./icon.svg",
   "engines": {
     "node": ">=20.11.0"
   },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
     }
   },
   "peerDependencies": {
