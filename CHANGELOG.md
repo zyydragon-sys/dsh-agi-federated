@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.6.1 — 2026-11-01
+
+- CI self-test now runs on a three-OS matrix (`ubuntu-latest`, `windows-latest`,
+  `macos-latest`) with `fail-fast: false`, so the plugin is checked on the platform it
+  actually ships on instead of Linux only.
+- CI gains a `drift` job: on push/manual runs it executes `scripts/monitor.mjs` with the
+  Actions `GITHUB_TOKEN` and fails when the checked-out tree differs from GitHub.
+  Skipped on `pull_request` because a fork token cannot read the upstream tree.
+- Validated locally by simulating a clean checkout (28 files, no `node_modules`, no
+  `.git`): the job correctly reported `DRIFT .github/workflows/ci.yml` before this
+  publish and again `OK — repository matches local source` after it.
+
 ## 1.6.0 — 2026-11-01
 
 - Bundle version now tracks the packaged plugin releases again; this entry covers
