@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { CONFIG_VERSION, DEFAULT_CONFIG, normalizeConfig, validateConfig } from './schemas/config.js'
 
 const PLUGIN_ID = 'dsh-agi-federated'
-const PLUGIN_VERSION = '1.2.0'
+const PLUGIN_VERSION = '1.3.0'
 const MEMORY_FILE = 'memory.json'
 const EVIDENCE_FILE = 'evidence.json'
 const USAGE_FILE = 'usage.json'
@@ -3445,6 +3445,8 @@ class AgiFederated {
       )
     }
     const sessionUsage = sid ? this.usage.session(sid) : this.usage.blankBucket()
+    const contextRatio = contextWindow > 0 ? Math.min(1, contextTokens / contextWindow) : 0
+    const contextLevel = contextRatio >= 0.8 ? 'critical' : contextRatio >= 0.6 ? 'warn' : contextRatio >= 0.45 ? 'notice' : 'normal'
     const month = this.usage.snapshot().month
     const monthUsd = Object.values(month).reduce(
       (sum, bucket) => sum + finiteNumber(bucket.costUsd, 0),
@@ -3546,6 +3548,8 @@ class AgiFederated {
         totalTokens: sessionUsage.inputTokens + sessionUsage.outputTokens + sessionUsage.cacheReadTokens + sessionUsage.cacheWriteTokens,
         contextTokens: Math.max(0, Math.trunc(contextTokens)),
         contextWindow,
+        contextRatio: round(contextRatio, 4),
+        contextLevel,
       },
       cost: {
         currency: this.config.usage.currency,
