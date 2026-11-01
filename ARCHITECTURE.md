@@ -275,6 +275,19 @@ and next verification step.
 
 ## 10. Usage and cost monitoring
 
+**Official pricing.** DeepSeek Flash is priced from the official table at
+<https://api-docs.deepseek.com/quick_start/pricing>: off-peak USD per 1M tokens
+is $0.15 cache-miss input, $0.003 cache-hit input, and $0.60 output; the peak
+window (01:00-04:00 and 06:00-10:00 UTC on weekdays) doubles all three. The
+ledger stores token counts and recomputes cost with those rates; the calendar
+does not model Chinese public holidays, so the official page remains the billing
+source of truth.
+
+**Context display.** The panel's context number is the last settled request's
+official input + cache-read + output token total, not a cumulative session sum.
+The detail view shows that breakdown beside the provider-reported balance.
+
+
 ### 10.1 Two channels
 
 - **Estimate channel** — text/reasoning/tool-call character deltas are converted
