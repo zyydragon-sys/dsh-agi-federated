@@ -2,6 +2,11 @@
 
 ## 1.2.0 — 2026-11-01
 
+- Pricing: use the official DeepSeek Flash off-peak/peak rates and recompute
+  historical usage; the previous fallback priced cache reads at the generic $0.50
+  rate and overstated the session by roughly 80x.
+- UI: the context card is labeled as the last settled request and its detail
+  view exposes input/cache/output tokens and the active pricing window.
 - UI: clickable status cards open detail views for runtime/providers, Hot Memory,
   Clue Store, evidence, skills, audit chain, and federation seams.
 - Host: `status?details=1` returns bounded memory/evidence/skills details on
