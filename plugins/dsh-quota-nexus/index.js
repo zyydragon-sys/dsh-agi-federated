@@ -2373,6 +2373,7 @@ class QuotaNexusRuntime {
         requests: 0,
         tokens: 0,
       }))
+      const seriesMap = new Map()
       const days = new Map()
       let tokens = 0
       for (const event of events) {
@@ -2386,6 +2387,11 @@ class QuotaNexusRuntime {
         const index = Math.min(bucketCount - 1, Math.max(0, Math.floor((event.t - bucketBase) / bucketMs)))
         buckets[index].requests += 1
         buckets[index].tokens += eventTokens
+        const series = seriesMap.get(key) || { model: key, requests: 0, tokens: 0, buckets: Array(bucketCount).fill(0) }
+        series.requests += 1
+        series.tokens += eventTokens
+        series.buckets[index] += eventTokens
+        seriesMap.set(key, series)
         const dayKey = new Date(event.t).toISOString().slice(0, 10)
         days.set(dayKey, (days.get(dayKey) || 0) + eventTokens)
       }
@@ -2401,8 +2407,12 @@ class QuotaNexusRuntime {
           activeDays: days.size,
           peakDayTokens: dayValues.length ? Math.max(...dayValues) : 0,
           peakDayText: scale(dayValues.length ? Math.max(...dayValues) : 0),
+          avgTokens: bucketCount ? Math.round(tokens / bucketCount) : 0,
+          avgTokensText: scale(bucketCount ? Math.round(tokens / bucketCount) : 0),
         },
         models: [...models.values()].sort((a, b) => b.tokens - a.tokens),
+        series: [...seriesMap.values()].sort((a, b) => b.tokens - a.tokens).slice(0, 6),
+        peakBucketTokens: Math.max(1, ...buckets.map((bucket) => bucket.tokens)),
         buckets,
         plan: planViewOf(record, rt),
       })
