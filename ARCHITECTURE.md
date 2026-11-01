@@ -1,7 +1,7 @@
 # dsh-agi-federated — Architecture Design
 
 **Author:** txcdragon  
-**Version:** 1.4.0  
+**Version:** 1.5.0  
 **Target:** DeepSeek Harness `0.2.1-rc.5` (compatible range `>=0.2.1-rc.5 <0.3.0`)  
 **License:** not declared by the package; choose one before public redistribution.
 
@@ -136,7 +136,18 @@ revision. The same state always produces the same bytes.
 The snapshot is registered as an agent-scoped prompt section named
 `dsh-agi-federated.hot-memory`, so it dies with the agent scope.
 
-### 6.2 Clue Store
+### 6.2 Project Memory Bank
+
+The bank is a local-first, project-scoped knowledge layer. Its key is the
+session working directory (`project:<hash>`), so sessions and agents in the same
+repository share pages while other repositories remain isolated. Global pages
+are opt-in. Pages are bounded to 4000 characters, redacted before storage,
+deduplicated by id, capped at 500 records, and recalled with the same BM25
+scorer as clues. `bankLinks()` supplies a bounded graph of related pages by
+shared tags, keywords, and project. Tool-error lessons and explicit
+"remember" intents are auto-captured; no assistant reasoning is stored.
+
+### 6.3 Clue Store
 
 The Clue Store is a map from record id to the same distilled fields. It never
 stores the source text. Distillation performs:
