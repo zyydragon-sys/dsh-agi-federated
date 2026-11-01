@@ -17,6 +17,9 @@ The nested bundle keeps its own version, independent of the root
   `usageSummary` prices every event with the snapshot at its own billing phase, so the
   KPI card “消费（估算）”, `totals.costUsd` and `costByModel` reflect real usage ×
   official price (marked as an estimate, USD).
+- Session-level usage: leases carry a `sessionKey`, events record it, and
+  `usageSummary` returns `sessions[]` (requests / tokens / cost per session); the
+  usage panel lists the top sessions and the per-model cost rows.
 
 ## 1.11.1 — 2026-11-01
 
