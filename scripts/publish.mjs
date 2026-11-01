@@ -60,6 +60,7 @@ const GROUPS = {
       'scripts/monitor.mjs',
       'scripts/watch.mjs',
       'scripts/ci-doctor.mjs',
+      'scripts/profile-guard.mjs',
       'scripts/skills-sync.mjs',
       '.github/workflows/ci.yml',
     ],
