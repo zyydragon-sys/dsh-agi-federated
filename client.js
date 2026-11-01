@@ -63,17 +63,115 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function Card({ title, children }) {
+    function Card({ title, children, onClick }) {
+      const interactive = typeof onClick === 'function';
       return h('section', {
+        role: interactive ? 'button' : undefined,
+        tabIndex: interactive ? 0 : undefined,
+        onClick,
+        onKeyDown: interactive ? (event) => {
+          if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onClick(); }
+        } : undefined,
         style: {
           border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 12,
           background: 'var(--dsw-alias-bg-layer-1)', padding: 16,
+          cursor: interactive ? 'pointer' : 'default',
         },
-      }, h('h3', { style: { margin: '0 0 8px', fontSize: 13, color: 'var(--dsw-alias-label-secondary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em' } }, title), children);
+      },
+        h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 } },
+          h('h3', { style: { margin: 0, fontSize: 13, color: 'var(--dsw-alias-label-secondary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em' } }, title),
+          interactive ? h('span', { style: { fontSize: 11, color: 'var(--dsw-alias-brand-primary)' } }, '详情') : null,
+        ),
+        children,
+      );
+    }
+
+    function Detail({ state, onClose, onReload }) {
+      const kind = state.kind;
+      const data = state.data;
+      const d = data && data.details ? data.details : {};
+      const titles = { runtime: '运行状态', memory: '记忆与证据', skills: '技能与审计', federation: '联邦 seams' };
+      let body = null;
+      if (state.loading) body = h('p', { style: { color: 'var(--dsw-alias-label-secondary)' } }, '读取中…');
+      else if (state.error) body = h('p', { style: { color: 'var(--dsw-alias-state-error-primary)' } }, state.error);
+      else if (kind === 'runtime') {
+        body = h(React.Fragment, null,
+          h(Row, { label: '模型', value: (data.model?.provider || '—') + ' / ' + (data.model?.model || '—') }),
+          h(Row, { label: '上下文', value: (data.session?.contextTokens || 0).toLocaleString() + ' / ' + (data.session?.contextWindow || 0).toLocaleString() }),
+          h(Row, { label: '会话费用', value: '$' + Number(data.cost?.sessionUsd || 0).toFixed(4) }),
+          h(Row, { label: '本月费用', value: '$' + Number(data.cost?.monthUsd || 0).toFixed(4) }),
+          ...(data.providers || []).map((provider) => h(Row, {
+            key: provider.id,
+            label: provider.label || provider.id,
+            value: (provider.status || '—') + (provider.balance == null ? '' : ' · ' + provider.balance + ' ' + (provider.currency || '')),
+          })),
+        );
+      } else if (kind === 'memory') {
+        body = h(React.Fragment, null,
+          h('h4', { style: { margin: '0 0 8px', fontSize: 13 } }, 'Hot Memory'),
+          h('pre', { style: { margin: '0 0 16px', padding: 12, borderRadius: 8, background: 'var(--dsw-alias-bg-layer-2)', whiteSpace: 'pre-wrap', fontSize: 12, lineHeight: 1.55, overflow: 'auto' } }, d.memory?.text || '（空）'),
+          h('h4', { style: { margin: '0 0 8px', fontSize: 13 } }, 'Clue Store · ' + (d.memory?.clues?.length || 0)),
+          ...(d.memory?.clues?.length ? d.memory.clues.map((clue, index) => h('div', {
+            key: index,
+            style: { padding: '8px 0', borderBottom: '1px solid var(--dsw-alias-border-l1)', fontSize: 12 },
+          }, h('div', { style: { fontWeight: 600 } }, '[' + clue.kind + '] ' + clue.summary), h('div', { style: { color: 'var(--dsw-alias-label-secondary)', marginTop: 3 } }, (clue.keywords || []).slice(0, 8).join(' · ')))) : h('p', { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 13 } }, '暂无线索')),
+          h('h4', { style: { margin: '16px 0 8px', fontSize: 13 } }, 'Evidence · ' + (d.evidence?.recent?.length || 0)),
+          ...(d.evidence?.recent?.length ? d.evidence.recent.slice().reverse().map((record, index) => h('div', {
+            key: index,
+            style: { padding: '8px 0', borderBottom: '1px solid var(--dsw-alias-border-l1)', fontSize: 12 },
+          }, h('div', { style: { fontWeight: 600 } }, '[' + record.level + '] ' + record.tool), h('div', { style: { color: 'var(--dsw-alias-label-secondary)', marginTop: 3 } }, record.summary || '—'))) : h('p', { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 13 } }, '暂无证据')),
+        );
+      } else if (kind === 'skills') {
+        body = h(React.Fragment, null,
+          h('h4', { style: { margin: '0 0 8px', fontSize: 13 } }, 'Skills · ' + (d.skills?.list?.length || 0)),
+          ...(d.skills?.list?.length ? d.skills.list.map((skill) => h('div', {
+            key: skill.id,
+            style: { padding: '8px 0', borderBottom: '1px solid var(--dsw-alias-border-l1)', fontSize: 12 },
+          }, h('div', { style: { fontWeight: 600 } }, skill.name + ' · ' + skill.stage), h('div', { style: { color: 'var(--dsw-alias-label-secondary)', marginTop: 3 } }, (skill.bytes || 0) + ' bytes · ' + ((skill.tags || []).join(', ') || 'no tags')))) : h('p', { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 13 } }, '暂无 skills')),
+          h('h4', { style: { margin: '16px 0 8px', fontSize: 13 } }, 'Audit'),
+          h(Row, { label: 'seq', value: String(data.audit?.seq || 0) }),
+          h(Row, { label: 'chain', value: data.audit?.broken ? 'BROKEN' : '完整' }),
+          ...(data.audit?.recent || []).slice().reverse().map((entry, index) => h('div', {
+            key: index,
+            style: { padding: '8px 0', borderBottom: '1px solid var(--dsw-alias-border-l1)', fontSize: 12 },
+          }, h('div', { style: { fontWeight: 600 } }, '[' + entry.kind + '] ' + (entry.subject || '')), h('div', { style: { color: 'var(--dsw-alias-label-secondary)', marginTop: 3 } }, entry.reason || '—'))),
+        );
+      } else {
+        body = h(React.Fragment, null,
+          ...['jepa', 'cuv', 'mpRcp'].map((key) => {
+            const item = data.federation?.[key] || {};
+            return h(Row, {
+              key,
+              label: key === 'mpRcp' ? 'mp-rcp' : key.toUpperCase(),
+              value: item.enabled ? (item.blocking ? 'enabled · blocking' : 'enabled · advisory') : 'disabled',
+            });
+          }),
+          h('p', { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 12, marginTop: 12 } }, '所有 seam 默认 advisory allow；失败被隔离并记录日志。'),
+        );
+      }
+      return h('div', {
+        style: { position: 'fixed', inset: 0, zIndex: 80, background: 'rgba(0,0,0,.36)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 },
+        onClick: onClose,
+      },
+        h('div', {
+          style: { width: 'min(760px, 100%)', maxHeight: '82vh', overflow: 'auto', background: 'var(--dsw-alias-bg-overlay)', border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 14, padding: 20, boxShadow: '0 18px 60px rgba(0,0,0,.28)' },
+          onClick: (event) => event.stopPropagation(),
+        },
+          h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14 } },
+            h('h2', { style: { margin: 0, fontSize: 18 } }, titles[kind] || '详情'),
+            h('div', { style: { display: 'flex', gap: 8 } },
+              h('button', { onClick: onReload, style: { border: '1px solid var(--dsw-alias-border-l1)', background: 'transparent', color: 'var(--dsw-alias-label-secondary)', borderRadius: 7, padding: '4px 10px', cursor: 'pointer', fontSize: 12 } }, '刷新'),
+              h('button', { onClick: onClose, style: { border: '1px solid var(--dsw-alias-border-l1)', background: 'transparent', color: 'var(--dsw-alias-label-secondary)', borderRadius: 7, padding: '4px 10px', cursor: 'pointer', fontSize: 12 } }, '关闭'),
+            ),
+          ),
+          body,
+        ),
+      );
     }
 
     function Panel() {
       const { data, error, loading } = useStatus();
+      const [detail, setDetail] = React.useState(null);
       const ok = Boolean(data && data.ok);
       const degraded = Boolean(data && data.degraded);
       const evidence = data && data.evidence ? data.evidence : {};
@@ -83,6 +181,20 @@ window.__ModuleLoader__.load({
       const model = data && data.model ? data.model : {};
       const fed = data && data.federation ? data.federation : {};
       const generated = data && data.generatedAt ? new Date(data.generatedAt).toLocaleString() : '—';
+
+      async function openDetail(kind) {
+        setDetail({ kind, loading: true, data: null, error: '' });
+        try {
+          const query = data && data.sessionId ? '?details=1&sessionId=' + encodeURIComponent(data.sessionId) : '?details=1';
+          const response = await fetch(STATUS_URL + query, { cache: 'no-store' });
+          if (!response.ok) throw new Error(response.status === 404 ? 'Host 插件未激活（404）' : 'HTTP ' + response.status);
+          const payload = await response.json();
+          setDetail({ kind, loading: false, data: payload, error: '' });
+        } catch (failure) {
+          setDetail({ kind, loading: false, data: null, error: String(failure.message || failure) });
+        }
+      }
+
       return h('div', { style: { padding: '28px clamp(18px, 4vw, 48px)', maxWidth: 880, margin: '0 auto', color: 'var(--dsw-alias-label-primary)' } },
         h('div', { style: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 20, marginBottom: 20 } },
           h('div', null,
@@ -102,25 +214,25 @@ window.__ModuleLoader__.load({
           h('span', null, '更新于 ' + generated),
         ),
         h('div', { style: { display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))' } },
-          h(Card, { title: '运行状态' },
+          h(Card, { title: '运行状态', onClick: () => openDetail('runtime') },
             h(Row, { label: '模型', value: (model.provider || '—') + ' / ' + (model.model || '—') }),
             h(Row, { label: '本次上下文', value: (usage.contextTokens || 0).toLocaleString() + ' tokens' }),
             h(Row, { label: '会话费用', value: '$' + Number(data && data.cost && data.cost.sessionUsd ? data.cost.sessionUsd : 0).toFixed(4) }),
             h(Row, { label: 'Provider', value: (data && data.providers ? data.providers.filter((p) => p.status === 'ok').length : 0) + ' 个正常' }),
           ),
-          h(Card, { title: '记忆与证据' },
+          h(Card, { title: '记忆与证据', onClick: () => openDetail('memory') },
             h(Row, { label: 'Hot Memory', value: '24 条上限 · 字节稳定' }),
             h(Row, { label: 'Evidence', value: (evidence.records || 0) + ' 条 / ' + (evidence.sessions || 0) + ' 个会话' }),
             h(Row, { label: 'Clue Store', value: 'BM25 长尾召回' }),
             h(Row, { label: 'Checkpoint', value: '确定性表面压缩' }),
           ),
-          h(Card, { title: '技能与审计' },
+          h(Card, { title: '技能与审计', onClick: () => openDetail('skills') },
             h(Row, { label: 'Skills staged', value: String(skills.staged || 0) }),
             h(Row, { label: 'Skills promoted', value: String(skills.promoted || 0) }),
             h(Row, { label: 'Audit', value: 'seq ' + (audit.seq || 0) + (audit.broken ? ' · BROKEN' : ' · 完整') }),
             h(Row, { label: 'Security', value: '证据闸门 · 零信任' }),
           ),
-          h(Card, { title: '联邦 seams' },
+          h(Card, { title: '联邦 seams', onClick: () => openDetail('federation') },
             ['jepa', 'cuv', 'mpRcp'].map((key) => h(Row, {
               key,
               label: key === 'mpRcp' ? 'mp-rcp' : key.toUpperCase(),
@@ -131,9 +243,14 @@ window.__ModuleLoader__.load({
         h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 18, alignItems: 'center' } },
           h('a', { href: REPO, target: '_blank', rel: 'noreferrer', style: { color: 'var(--dsw-alias-brand-primary)', fontSize: 13, fontWeight: 600 } }, 'GitHub 仓库'),
           h('span', { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 13 } }, '·'),
-          h('span', { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 13 } }, '市场目录：等待 1 天规则后提交 PR'),
-          h('a', { href: '/agi-federated/status', target: '_blank', rel: 'noreferrer', style: { marginLeft: 'auto', color: 'var(--dsw-alias-label-secondary)', fontSize: 12 } }, '原始状态 JSON'),
+          h('span', { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 13 } }, '点击卡片查看记忆、证据、技能、审计与 Seams 详情'),
+          h('a', { href: STATUS_URL, target: '_blank', rel: 'noreferrer', style: { marginLeft: 'auto', color: 'var(--dsw-alias-label-secondary)', fontSize: 12 } }, '原始状态 JSON'),
         ),
+        detail ? h(Detail, {
+          state: detail,
+          onClose: () => setDetail(null),
+          onReload: () => openDetail(detail.kind),
+        }) : null,
       );
     }
 
