@@ -65,6 +65,7 @@ window.__ModuleLoader__.load({
         'field.balanceUrl.placeholder': '例如 https://api.deepseek.com/user/balance',
         'field.plan': '套餐类型（订阅模式按周期统计用量）',
         'field.planLimit': '每周期限额',
+        'field.plan5h': '5h 限额（可选，对齐官网 5h 窗口）',
         'period.day': '每天重置',
         'period.week': '每周重置',
         'period.month': '每月重置',
@@ -179,6 +180,7 @@ window.__ModuleLoader__.load({
         'field.balanceUrl.placeholder': 'e.g. https://api.deepseek.com/user/balance',
         'field.plan': 'Plan type (subscription counts usage per period)',
         'field.planLimit': 'Limit per period',
+        'field.plan5h': '5h limit (optional, mirrors the console 5h window)',
         'period.day': 'resets daily',
         'period.week': 'resets weekly',
         'period.month': 'resets monthly',
@@ -1078,6 +1080,29 @@ window.__ModuleLoader__.load({
         provider?.plan?.periodMs === 604800000 ? 'week' : provider?.plan?.periodMs === 2592000000 ? 'month' : 'day',
       )
       const periodMs = planPeriod === 'week' ? 604800000 : planPeriod === 'month' ? 2592000000 : 86400000
+      const [plan5hLimit, setPlan5hLimit] = useState(
+        provider?.plan?.windows?.find((window) => window.id === '5h')?.limit ?? '',
+      )
+      const buildPlan = () => {
+        const windows = []
+        if (planKind === 'subscription') {
+          const fiveHour = Number(plan5hLimit)
+          if (Number.isFinite(fiveHour) && fiveHour > 0) {
+            windows.push({ id: '5h', limitMs: 18000000, limit: fiveHour })
+          }
+          const main = Number(planLimit)
+          if (Number.isFinite(main) && main > 0) {
+            windows.push({ id: planPeriod === 'week' ? 'week' : planPeriod === 'month' ? 'month' : 'day', limitMs: periodMs, limit: main })
+          }
+        }
+        return {
+          kind: planKind,
+          limit: Number(planLimit) || null,
+          periodMs,
+          unit: 'requests',
+          ...(windows.length ? { windows } : {}),
+        }
+      }
       const [label, setLabel] = useState(provider?.label ?? '')
       const [baseUrl, setBaseUrl] = useState(provider?.baseUrl ?? '')
       const [apiKey, setApiKey] = useState('')
@@ -1098,7 +1123,7 @@ window.__ModuleLoader__.load({
                 baseUrl,
                 protocol: protocol || '',
                 balanceUrl: balanceUrl || '',
-                plan: { kind: planKind, limit: Number(planLimit) || null, periodMs, unit: 'requests' },
+                plan: buildPlan(),
                 apiKey: apiKey || undefined,
               }
             : {
@@ -1107,7 +1132,7 @@ window.__ModuleLoader__.load({
                 baseUrl: baseUrl || undefined,
                 protocol: protocol || undefined,
                 balanceUrl: balanceUrl || undefined,
-                plan: { kind: planKind, limit: Number(planLimit) || null, periodMs, unit: 'requests' },
+                plan: buildPlan(),
                 apiKey,
                 validate,
               }
@@ -1309,6 +1334,14 @@ window.__ModuleLoader__.load({
                           h('option', { value: 'week' }, t('period.week')),
                           h('option', { value: 'month' }, t('period.month')),
                         )
+                      : null,
+                    planKind === 'subscription'
+                      ? h('input', {
+                          style: { ...style.input, width: 130 },
+                          value: plan5hLimit,
+                          placeholder: t('field.plan5h'),
+                          onChange: (event) => setPlan5hLimit(event.target.value),
+                        })
                       : null,
                   ),
                 ),
