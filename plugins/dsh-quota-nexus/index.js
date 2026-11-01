@@ -1747,7 +1747,7 @@ class QuotaNexusRuntime {
       ...(typeof input?.rechargeUrl === 'string' && input.rechargeUrl.trim()
         ? { rechargeUrl: input.rechargeUrl.trim() }
         : {}),
-      ...(sanitizePlan(input?.plan) ? { plan: withAnchor(sanitizePlan(input.plan)) } : {}),
+      ...(sanitizePlan(input?.plan) ? { plan: sanitizePlan(input.plan) } : {}),
       credential: secret
         ? { type: input?.credentialType === 'oauth' ? 'oauth' : 'api-key', secret, masked: maskSecret(secret) }
         : { type: 'none', secret: '', masked: '' },
