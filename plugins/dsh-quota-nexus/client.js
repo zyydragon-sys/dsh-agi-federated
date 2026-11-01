@@ -1,6 +1,6 @@
 /**
  * dsh-quota-nexus — Client half (Web)。
- * build: 1.3.0 (balance-api) — 该标记随发布变化，用于让浏览器取到新模块而不是旧缓存。
+ * build: 1.6.0 (live-0s) — 该标记随发布变化，用于让浏览器取到新模块而不是旧缓存。
  *
  * 在“设置 → Quota Nexus”里渲染卡片列表式供应商管理：
  *   每行 = 提供商名称 + 状态点（已连接/离线/异常）+ 右侧“编辑”“删除”；
@@ -63,6 +63,11 @@ window.__ModuleLoader__.load({
         'field.protocol': '接口协议（决定鉴权头）',
         'field.balanceUrl': '余额接口 URL（可选，留空用官方端点）',
         'field.balanceUrl.placeholder': '例如 https://api.deepseek.com/user/balance',
+        'field.plan': '套餐类型（订阅模式按周期统计用量）',
+        'field.planLimit': '每周期限额',
+        'period.day': '每天重置',
+        'period.week': '每周重置',
+        'period.month': '每月重置',
         'protocol.auto': '自动（按厂商与 baseUrl 推断）',
         'proto.openai': 'OpenAI 兼容：authorization: Bearer <key> · 端点写到 …/v1',
         'proto.anthropic': 'Anthropic Messages：x-api-key + anthropic-version 2023-06-01 · 端点写到 …/v1',
@@ -83,6 +88,20 @@ window.__ModuleLoader__.load({
         'status.unconfigured': '未配置',
         'quotaLeft': '剩余额度',
         'balance': '余额',
+        'recharge': '充值 →',
+        'usage': '用量明细',
+        'models': '模型',
+        'modelsNone': '尚未同步模型目录',
+        'syncedAt': '同步于',
+        'syncModels': '同步模型',
+        'usageWindow': '本周期',
+        'unitRequests': '次请求',
+        'resetsIn': '重置倒计时',
+        'plan.payg': '套餐：按量计费',
+        'plan.subscription': '套餐：订阅',
+        'planLeft': '剩余',
+        'reset': '重置',
+        'live': '0s 实时',
         'cooldownLeft': '冷却剩余',
         'alerts': '预警',
         'warnings': '诊断 warnings',
@@ -129,6 +148,11 @@ window.__ModuleLoader__.load({
         'field.protocol': 'Wire protocol (selects the auth header)',
         'field.balanceUrl': 'Balance endpoint URL (optional; official endpoint when empty)',
         'field.balanceUrl.placeholder': 'e.g. https://api.deepseek.com/user/balance',
+        'field.plan': 'Plan type (subscription counts usage per period)',
+        'field.planLimit': 'Limit per period',
+        'period.day': 'resets daily',
+        'period.week': 'resets weekly',
+        'period.month': 'resets monthly',
         'protocol.auto': 'Auto (inferred from vendor and baseUrl)',
         'proto.openai': 'OpenAI compatible: authorization: Bearer <key> · endpoint ends at …/v1',
         'proto.anthropic': 'Anthropic Messages: x-api-key + anthropic-version 2023-06-01 · endpoint ends at …/v1',
@@ -149,6 +173,20 @@ window.__ModuleLoader__.load({
         'status.unconfigured': 'Unconfigured',
         'quotaLeft': 'Quota left',
         'balance': 'Balance',
+        'recharge': 'Top up →',
+        'usage': 'Usage details',
+        'models': 'Models',
+        'modelsNone': 'Model catalog not synced yet',
+        'syncedAt': 'synced',
+        'syncModels': 'Sync models',
+        'usageWindow': 'This window',
+        'unitRequests': 'requests',
+        'resetsIn': 'resets in',
+        'plan.payg': 'Plan: pay-as-you-go',
+        'plan.subscription': 'Plan: subscription',
+        'planLeft': 'left',
+        'reset': 'resets',
+        'live': '0s live',
         'cooldownLeft': 'Cooldown',
         'alerts': 'Alerts',
         'warnings': 'Diagnostic warnings',
@@ -382,7 +420,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    const ProviderCard = ({ provider, t, onEdit, onDelete, onProbe }) => {
+    const ProviderCard = ({ provider, t, now, onEdit, onDelete, onProbe, onSyncModels }) => {
       const quotaText =
         provider.quotaRatio === null || provider.quotaRatio === undefined
           ? t('noQuotaData')
@@ -395,6 +433,29 @@ window.__ModuleLoader__.load({
         : ''
       const cooldown =
         provider.cooldownMs > 0 ? ` · ${t('cooldownLeft')} ${Math.ceil(provider.cooldownMs / 1000)}s` : ''
+      const modelsText = provider.modelsCount
+        ? `${t('models')} ${provider.modelsCount} · ${(provider.modelsPreview ?? []).slice(0, 3).join(', ')}${
+            provider.modelsSyncedAt ? ` · ${t('syncedAt')} ${new Date(provider.modelsSyncedAt).toLocaleTimeString()}` : ''
+          }`
+        : t('modelsNone')
+      const usage = provider.usage
+      const usageText = usage
+        ? `${t('usageWindow')} ${usage.requests} ${t('unitRequests')}${usage.tokens ? ` · ${usage.tokens} tokens` : ''}${
+            usage.resetsInMs > 0 ? ` · ${t('resetsIn')} ${Math.ceil(usage.resetsInMs / 1000)}s` : ''
+          }`
+        : ''
+      const plan = provider.plan
+      const planRemainMs =
+        plan && plan.resetsAt ? Math.max(0, new Date(plan.resetsAt).getTime() - now) : plan?.resetsInMs ?? 0
+      const planText = plan
+        ? plan.kind === 'subscription'
+          ? `${t('plan.subscription')} · ${plan.used ?? 0}/${plan.limit ?? '∞'} ${
+              plan.unit === 'tokens' ? 'tokens' : t('unitRequests')
+            }${plan.limit !== null && plan.remaining !== null ? ` · ${t('planLeft')} ${plan.remaining}` : ''}${
+              plan.resetsAt ? ` · ${t('reset')} ${Math.ceil(planRemainMs / 1000)}s` : ''
+            }`
+          : t('plan.payg')
+        : ''
       return h(
         'div',
         { style: style.card, 'data-quota-nexus': provider.id },
@@ -415,6 +476,9 @@ window.__ModuleLoader__.load({
           ),
           h(QuotaBar, { ratio: provider.quotaRatio }),
           h('div', { style: style.meta }, `${quotaText}${observed}${probeInfo}`),
+          usageText ? h('div', { style: style.meta }, usageText) : null,
+          planText ? h('div', { style: { ...style.meta, fontWeight: 600 } }, planText) : null,
+          h('div', { style: style.meta }, modelsText),
           provider.balance?.amount !== null && provider.balance?.amount !== undefined
             ? h(
                 'div',
@@ -424,10 +488,41 @@ window.__ModuleLoader__.load({
                 }${provider.balance.available === false ? ' · 不可用' : ''}`,
               )
             : null,
+          provider.rechargeUrl || provider.usageUrl
+            ? h(
+                'div',
+                { style: { display: 'flex', gap: 12, fontSize: 11, flexWrap: 'wrap' } },
+                provider.rechargeUrl
+                  ? h(
+                      'a',
+                      {
+                        href: provider.rechargeUrl,
+                        target: '_blank',
+                        rel: 'noopener noreferrer',
+                        style: { color: 'var(--dsw-alias-brand-primary)', textDecoration: 'underline' },
+                      },
+                      t('recharge'),
+                    )
+                  : null,
+                provider.usageUrl
+                  ? h(
+                      'a',
+                      {
+                        href: provider.usageUrl,
+                        target: '_blank',
+                        rel: 'noopener noreferrer',
+                        style: { color: 'var(--dsw-alias-label-secondary)', textDecoration: 'underline' },
+                      },
+                      t('usage'),
+                    )
+                  : null,
+              )
+            : null,
         ),
         h(
           'div',
           { style: { display: 'flex', gap: 6, flex: '0 0 auto' } },
+          h('button', { type: 'button', style: style.button, onClick: () => onSyncModels(provider) }, t('syncModels')),
           h('button', { type: 'button', style: style.button, onClick: () => onProbe(provider) }, t('probe')),
           h('button', { type: 'button', style: style.button, onClick: () => onEdit(provider) }, t('edit')),
           h('button', { type: 'button', style: style.danger, onClick: () => onDelete(provider) }, t('delete')),
@@ -440,6 +535,13 @@ window.__ModuleLoader__.load({
       const [error, setError] = useState(null)
       const [busy, setBusy] = useState(false)
       const [dialog, setDialog] = useState(null)
+      const [nowWall, setNowWall] = useState(() => Date.now())
+
+      // 本地 1s 心跳：倒计时（重置/冷却）逐秒走，不需要再打服务端 → 观感是 0s 实时。
+      useEffect(() => {
+        const timer = setInterval(() => setNowWall(Date.now()), 1000)
+        return () => clearInterval(timer)
+      }, [])
 
       const t = useCallback(
         (key) => {
@@ -471,6 +573,8 @@ window.__ModuleLoader__.load({
 
       useEffect(() => {
         void refresh()
+        // 打开面板即触发一次服务端快刷（余额/套餐窗口），之后由 SSE 持续推送。
+        void api('/api/providers/refresh', { method: 'POST' }).catch(() => {})
         let source
         try {
           source = new EventSource(`${BASE}/api/events`)
@@ -495,6 +599,9 @@ window.__ModuleLoader__.load({
           source.addEventListener('probe', onDelta)
           source.addEventListener('strategy', onDelta)
           source.addEventListener('alert', onDelta)
+          source.addEventListener('balance', onDelta)
+          source.addEventListener('plan', onDelta)
+          source.addEventListener('models', onDelta)
         } catch {
           /* EventSource 不可用：退化为手动刷新 */
         }
@@ -523,6 +630,16 @@ window.__ModuleLoader__.load({
         async (provider) => {
           setBusy(true)
           await api('/api/providers/probe', { method: 'POST', body: { id: provider.id } })
+          await refresh()
+          setBusy(false)
+        },
+        [refresh],
+      )
+
+      const syncModelsFor = useCallback(
+        async (provider) => {
+          setBusy(true)
+          await api('/api/providers/sync-models', { method: 'POST', body: { id: provider.id } })
           await refresh()
           setBusy(false)
         },
@@ -578,6 +695,18 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { style: style.chips },
+          h(
+            'span',
+            {
+              style: {
+                ...style.chip,
+                color: 'var(--dsw-alias-state-success-primary)',
+                borderColor: 'var(--dsw-alias-state-success-primary)',
+              },
+              title: snapshot?.generatedAt ?? '',
+            },
+            `● ${t('live')}`,
+          ),
           h('span', { style: style.chip }, `providers ${counts.providers ?? 0}`),
           h('span', { style: style.chip }, `active ${counts.active ?? 0}`),
           h('span', { style: style.chip }, `cooldown ${counts.cooling ?? 0}`),
@@ -594,9 +723,11 @@ window.__ModuleLoader__.load({
                   key: provider.id,
                   provider,
                   t,
+                  now: nowWall,
                   onEdit: (entry) => setDialog({ mode: 'edit', provider: entry }),
                   onDelete: remove,
                   onProbe: probe,
+                  onSyncModels: syncModelsFor,
                 }),
               )
             : [h('div', { key: 'empty', style: style.note }, snapshot ? t('empty') : t('loading'))]),
@@ -659,6 +790,12 @@ window.__ModuleLoader__.load({
       const [vendorId, setVendorId] = useState(provider?.vendorId ?? 'deepseek')
       const [protocol, setProtocol] = useState(provider?.protocol ?? '')
       const [balanceUrl, setBalanceUrl] = useState(provider?.balanceUrl ?? '')
+      const [planKind, setPlanKind] = useState(provider?.plan?.kind ?? 'payg')
+      const [planLimit, setPlanLimit] = useState(provider?.plan?.limit ?? '')
+      const [planPeriod, setPlanPeriod] = useState(
+        provider?.plan?.periodMs === 604800000 ? 'week' : provider?.plan?.periodMs === 2592000000 ? 'month' : 'day',
+      )
+      const periodMs = planPeriod === 'week' ? 604800000 : planPeriod === 'month' ? 2592000000 : 86400000
       const [label, setLabel] = useState(provider?.label ?? '')
       const [baseUrl, setBaseUrl] = useState(provider?.baseUrl ?? '')
       const [apiKey, setApiKey] = useState('')
@@ -679,6 +816,7 @@ window.__ModuleLoader__.load({
                 baseUrl,
                 protocol: protocol || '',
                 balanceUrl: balanceUrl || '',
+                plan: { kind: planKind, limit: Number(planLimit) || null, periodMs, unit: 'requests' },
                 apiKey: apiKey || undefined,
               }
             : {
@@ -687,6 +825,7 @@ window.__ModuleLoader__.load({
                 baseUrl: baseUrl || undefined,
                 protocol: protocol || undefined,
                 balanceUrl: balanceUrl || undefined,
+                plan: { kind: planKind, limit: Number(planLimit) || null, periodMs, unit: 'requests' },
                 apiKey,
                 validate,
               }
@@ -769,7 +908,7 @@ window.__ModuleLoader__.load({
                   whiteSpace: 'nowrap',
                 },
               },
-              'v1.3.0 · OpenAI + Anthropic + Balance',
+              'v1.5.0 · models + usage + top-up',
             ),
           ),
           h(
@@ -850,6 +989,46 @@ window.__ModuleLoader__.load({
                     placeholder: provider?.balanceUrl ?? t('field.balanceUrl.placeholder'),
                     onChange: (event) => setBalanceUrl(event.target.value),
                   }),
+                ),
+                h(
+                  'div',
+                  { style: style.field },
+                  h('span', { style: style.label }, t('field.plan')),
+                  h(
+                    'div',
+                    { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
+                    h(
+                      'select',
+                      {
+                        style: { ...style.input, width: 150 },
+                        value: planKind,
+                        onChange: (event) => setPlanKind(event.target.value),
+                      },
+                      h('option', { value: 'payg' }, t('plan.payg')),
+                      h('option', { value: 'subscription' }, t('plan.subscription')),
+                    ),
+                    planKind === 'subscription'
+                      ? h('input', {
+                          style: { ...style.input, width: 110 },
+                          value: planLimit,
+                          placeholder: t('field.planLimit'),
+                          onChange: (event) => setPlanLimit(event.target.value),
+                        })
+                      : null,
+                    planKind === 'subscription'
+                      ? h(
+                          'select',
+                          {
+                            style: { ...style.input, width: 120 },
+                            value: planPeriod,
+                            onChange: (event) => setPlanPeriod(event.target.value),
+                          },
+                          h('option', { value: 'day' }, t('period.day')),
+                          h('option', { value: 'week' }, t('period.week')),
+                          h('option', { value: 'month' }, t('period.month')),
+                        )
+                      : null,
+                  ),
                 ),
                 h(
                   'div',
