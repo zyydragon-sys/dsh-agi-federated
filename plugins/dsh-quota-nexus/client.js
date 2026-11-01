@@ -1,6 +1,6 @@
 /**
  * dsh-quota-nexus — Client half (Web)。
- * build: 1.9.0 (plan-windows + usage + drilldown)
+ * build: 1.10.0 (usage-dashboard)
  *
  * 在“设置 → Quota Nexus”里渲染卡片列表式供应商管理：
  *   每行 = 提供商名称 + 状态点（已连接/离线/异常）+ 右侧“编辑”“删除”；
@@ -122,6 +122,16 @@ window.__ModuleLoader__.load({
         'detail.usage': '本周期用量',
         'detail.warnings': '诊断告警数',
         'detail.none': '暂无条目',
+        'kpi.tokens': 'Tokens',
+        'kpi.tokensHint': '本周期经过插件的 token 用量',
+        'kpi.requests': 'API 请求次数',
+        'kpi.requestsHint': '本周期真实调用次数',
+        'kpi.balance': '余额合计',
+        'kpi.balanceHint': '各供应商官方余额之和',
+        'kpi.activeDays': '活跃天数',
+        'kpi.activeDaysHint': '本周期有调用的天数',
+        'calendar': '每周 Token 热力',
+        'calendarHint': '按 ISO 周聚合（近 6 个月）',
         'syncedAt': '同步于',
         'syncModels': '同步模型',
         'usageWindow': '本周期',
@@ -237,6 +247,16 @@ window.__ModuleLoader__.load({
         'detail.usage': 'Usage this period',
         'detail.warnings': 'Diagnostic warnings',
         'detail.none': 'Nothing to show',
+        'kpi.tokens': 'Tokens',
+        'kpi.tokensHint': 'tokens used through the plugin this period',
+        'kpi.requests': 'API requests',
+        'kpi.requestsHint': 'real calls this period',
+        'kpi.balance': 'Total balance',
+        'kpi.balanceHint': 'sum of official vendor balances',
+        'kpi.activeDays': 'Active days',
+        'kpi.activeDaysHint': 'days with at least one call',
+        'calendar': 'Weekly token heat',
+        'calendarHint': 'grouped by ISO week (last 6 months)',
         'syncedAt': 'synced',
         'syncModels': 'Sync models',
         'usageWindow': 'This window',
@@ -649,6 +669,7 @@ window.__ModuleLoader__.load({
       const [openChip, setOpenChip] = useState(null)
       const [usageRange, setUsageRange] = useState('day')
       const [usage, setUsage] = useState(null)
+      const [calendar, setCalendar] = useState(null)
 
       useEffect(() => {
         void api(`/api/usage?range=${usageRange}`)
@@ -657,6 +678,14 @@ window.__ModuleLoader__.load({
           })
           .catch(() => {})
       }, [usageRange, snapshot?.generatedAt])
+
+      useEffect(() => {
+        void api('/api/usage/calendar?months=6')
+          .then((payload) => {
+            if (payload?.ok) setCalendar(payload)
+          })
+          .catch(() => {})
+      }, [snapshot?.generatedAt])
 
       // 本地 1s 心跳：倒计时（重置/冷却）逐秒走，不需要再打服务端 → 观感是 0s 实时。
       useEffect(() => {
@@ -861,6 +890,18 @@ window.__ModuleLoader__.load({
       }
 
       const chipDetails = detailLines()
+      const usageRows = usage?.providers ?? []
+      const totalTokens = usageRows.reduce((sum, row) => sum + row.totals.tokens, 0)
+      const totalRequests = usageRows.reduce((sum, row) => sum + row.totals.requests, 0)
+      const activeDays = usageRows.reduce((best, row) => Math.max(best, row.totals.activeDays), 0)
+      const balanceSum = providers.reduce(
+        (sum, provider) => sum + (typeof provider.balance?.amount === 'number' ? provider.balance.amount : 0),
+        0,
+      )
+      const balanceCurrencies = [...new Set(providers.map((provider) => provider.balance?.currency).filter(Boolean))]
+      const balanceText = providers.length ? `${balanceCurrencies.join('/') || '—'} ${balanceSum.toFixed(2)}` : '—'
+      const fmtTokens = (value) =>
+        value >= 1e9 ? (value / 1e9).toFixed(2) + 'B' : value >= 1e6 ? (value / 1e6).toFixed(2) + 'M' : value >= 1e3 ? (value / 1e3).toFixed(1) + 'K' : String(value)
 
       return h(
         'section',
@@ -962,6 +1003,59 @@ window.__ModuleLoader__.load({
             t('add'),
           ),
         ),
+        h(
+          'div',
+          { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 } },
+          ...[t('kpi.tokens'), t('kpi.requests'), t('kpi.balance'), t('kpi.activeDays')].map((label, index) =>
+            h(
+              'div',
+              {
+                key: label,
+                style: { border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 10, background: 'var(--dsw-alias-bg-layer-1)', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 2 },
+              },
+              h('div', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)' } }, label),
+              h('div', { style: { fontSize: 18, fontWeight: 700 } }, [fmtTokens(totalTokens), String(totalRequests), balanceText, String(activeDays)][index]),
+              h('div', { style: style.meta }, [t('kpi.tokensHint'), t('kpi.requestsHint'), t('kpi.balanceHint'), t('kpi.activeDaysHint')][index]),
+            ),
+          ),
+        ),
+        calendar && (calendar.providers ?? []).some((row) => row.totalTokens > 0)
+          ? h(
+              'div',
+              { style: { display: 'flex', flexDirection: 'column', gap: 6, border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 10, background: 'var(--dsw-alias-bg-layer-1)', padding: '10px 12px' } },
+              h(
+                'div',
+                { style: { display: 'flex', justifyContent: 'space-between' } },
+                h('strong', { style: { fontSize: 12 } }, t('calendar')),
+                h('span', { style: style.meta }, t('calendarHint')),
+              ),
+              ...(calendar.providers ?? []).flatMap((row) =>
+                row.months.map((month) =>
+                  h(
+                    'div',
+                    { key: row.providerId + month.key, style: { display: 'flex', gap: 4, alignItems: 'center' } },
+                    h('span', { style: { width: 56, fontSize: 10.5, color: 'var(--dsw-alias-label-secondary)' } }, month.key.slice(2)),
+                    ...month.weeks.map((week) => {
+                      const ratio = row.maxTokens ? week.tokens / row.maxTokens : 0
+                      return h('div', {
+                        key: week.weekStart,
+                        title: week.weekStart + ' · ' + week.tokens + ' tokens',
+                        style: {
+                          flex: '0 0 76px',
+                          padding: '6px 2px',
+                          textAlign: 'center',
+                          borderRadius: 6,
+                          fontSize: 10.5,
+                          background: week.tokens ? 'color-mix(in srgb, var(--dsw-alias-brand-primary) ' + Math.round(14 + ratio * 70) + '%, var(--dsw-alias-bg-layer-1))' : 'var(--dsw-alias-bg-layer-2)',
+                          color: ratio > 0.55 ? 'var(--dsw-alias-bg-base)' : 'var(--dsw-alias-label-secondary)',
+                        },
+                      }, fmtTokens(week.tokens))
+                    }),
+                  ),
+                ),
+              ),
+            )
+          : null,
         h(
           'div',
           { style: { display: 'flex', flexDirection: 'column', gap: 8, borderTop: '1px solid var(--dsw-alias-border-l1)', paddingTop: 10 } },
