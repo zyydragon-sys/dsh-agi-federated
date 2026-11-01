@@ -1,7 +1,7 @@
-# dsh-agi-federated
+﻿# dsh-agi-federated
 
 **Author:** txcdragon  
-**Version:** 1.0.1  
+**Version:** 1.1.0  
 **Platform:** DeepSeek Harness Web (Host + `webServer` index tap)  
 **Persistence:** `D:\DeepSeek Harness\agi-federated` (created automatically)
 
@@ -25,15 +25,22 @@ node scripts/publish.mjs --plugin dsh-quota-nexus
 
 ## What it does
 
-- **Hot Memory** — a bounded, byte-stable prompt snapshot per session.
-- **Clue Store + BM25** — regex-distilled summaries, keywords, seed tokens, and anchors; no transcript storage and no LLM calls.
-- **Surface checkpoint compaction** — old messages are removed from the model-visible surface with a constant-length `[AGI_CHECKPOINT]` node; no summarization model call.
-- **Staged skills** — writes go to `staged/`; promotion is deferred to idle/session-end review.
-- **Evidence gate** — every `write`/`edit` claim is cross-checked against a per-session index of tool parameter and output anchors (400 records), with a five-step false-positive ladder.
-- **Usage monitor** — dual-channel token accounting (live estimate + official usage settlement), provider balance refresh every second, monthly-budget breaker for `spendOnly` providers, and a floating status window.
-- **Zero trust** — workspace credential required for federated mutations; every deny/ask is appended to a hash-chained audit log.
-- **Federation seams** — JEPA world model, CUV value/conflict scorer, and mp-rcp quorum arbiter are mounted as advisory, default-allow seams.
+- **Hot Memory** 鈥?a bounded, byte-stable prompt snapshot per session.
+- **Clue Store + BM25** 鈥?regex-distilled summaries, keywords, seed tokens, and anchors; no transcript storage and no LLM calls.
+- **Surface checkpoint compaction** 鈥?old messages are removed from the model-visible surface with a constant-length `[AGI_CHECKPOINT]` node; no summarization model call.
+- **Staged skills** 鈥?writes go to `staged/`; promotion is deferred to idle/session-end review.
+- **Evidence gate** 鈥?every `write`/`edit` claim is cross-checked against a per-session index of tool parameter and output anchors (400 records), with a five-step false-positive ladder.
+- **Usage monitor** 鈥?dual-channel token accounting (live estimate + official usage settlement), provider balance refresh every second, monthly-budget breaker for `spendOnly` providers, and a floating status window.
+- **Zero trust** 鈥?workspace credential required for federated mutations; every deny/ask is appended to a hash-chained audit log.
+- **Federation seams** 鈥?JEPA world model, CUV value/conflict scorer, and mp-rcp quorum arbiter are mounted as advisory, default-allow seams.
 
+## Left sidebar
+
+After the page is refreshed, the plugin adds an **AGI** icon to the left
+sidebar. Clicking it opens the installed-state panel: host/model, Hot Memory,
+evidence index, skills, audit chain, federation seams, repository link, and the
+pending market-PR milestone. The panel polls the same status route as the
+floating window.
 ## Tools
 
 | Tool | Purpose |
@@ -51,14 +58,14 @@ node scripts/publish.mjs --plugin dsh-quota-nexus
 
 ```powershell
 # Recommended: install the bundle from this directory
-dsh plugin --profile web add "D:\Deepseek工作区\dsh-agi-federated"
+dsh plugin --profile web add "D:\Deepseek宸ヤ綔鍖篭dsh-agi-federated"
 dsh --profile web
 ```
 
 Or use the DSH Plugin Manager's **Install bundle** with target:
 
 ```text
-D:\Deepseek工作区\dsh-agi-federated
+D:\Deepseek宸ヤ綔鍖篭dsh-agi-federated
 ```
 
 For zero-trust skill writes, set a workspace credential before starting DSH:
@@ -87,3 +94,4 @@ D:\DeepSeek Harness\agi-federated\
 ## Design document
 
 The complete architecture is in [ARCHITECTURE.md](ARCHITECTURE.md): component boundaries, pure snapshot rules, BM25 formula, surface replacement protocol, evidence ladder, usage parsers, failure modes, threat model, and verification matrix.
+
