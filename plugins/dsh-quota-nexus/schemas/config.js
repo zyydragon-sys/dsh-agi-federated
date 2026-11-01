@@ -115,6 +115,12 @@ export const DEFAULTS = Object.freeze({
   rotationIntervalMs: 300000,
   /** 轮转允许的最小上下文（tokens）：低于此值的模型不参与轮转。 */
   rotationMinContext: 131072,
+  /** 只在空闲时轮转：最近有真实调用就跳过，避免打断正在干活的一轮。 */
+  rotationIdleOnly: true,
+  /** 「空闲」的判定窗口：最近这么多毫秒内有真实用量就不切。 */
+  rotationIdleWindowMs: 120000,
+  /** 用量导入轮询间隔（越小归属越准，默认 5s）。 */
+  usageSyncMs: 5000,
   alertDedupeMs: 600_000,
   alertWebhookUrls: [],
   alertInbox: true,
@@ -225,6 +231,9 @@ export function normalizeConfig(input) {
     rotationEnabled: bool(raw.rotationEnabled, DEFAULTS.rotationEnabled),
     rotationIntervalMs: Math.round(num(raw.rotationIntervalMs, DEFAULTS.rotationIntervalMs, 60_000, 86_400_000)),
     rotationMinContext: Math.round(num(raw.rotationMinContext, DEFAULTS.rotationMinContext, 8_192, 2_000_000)),
+    rotationIdleOnly: bool(raw.rotationIdleOnly, DEFAULTS.rotationIdleOnly),
+    rotationIdleWindowMs: Math.round(num(raw.rotationIdleWindowMs, DEFAULTS.rotationIdleWindowMs, 30_000, 3_600_000)),
+    usageSyncMs: Math.round(num(raw.usageSyncMs, DEFAULTS.usageSyncMs, 2_000, 300_000)),
     alertDedupeMs: Math.round(num(raw.alertDedupeMs, DEFAULTS.alertDedupeMs, 1_000, 86_400_000)),
     alertWebhookUrls: strList(raw.alertWebhookUrls, DEFAULTS.alertWebhookUrls),
     alertInbox: bool(raw.alertInbox, DEFAULTS.alertInbox),
@@ -315,6 +324,17 @@ function build() {
         .description('多级额度预警阈值（消耗比例）。'),
       alertBalanceFloor: z.number().min(0).default(DEFAULTS.alertBalanceFloor).description('余额预警下限。'),
       rotationEnabled: z.boolean().default(true).description('默认开启模型能力感知轮转。'),
+      rotationIdleOnly: z.boolean().default(true).description('只在空闲时轮转（最近有真实调用则跳过）。'),
+      rotationIdleWindowMs: z
+        .number()
+        .min(30_000)
+        .default(DEFAULTS.rotationIdleWindowMs)
+        .description('空闲判定窗口毫秒数。'),
+      usageSyncMs: z
+        .number()
+        .min(2_000)
+        .default(DEFAULTS.usageSyncMs)
+        .description('用量导入轮询间隔毫秒数。'),
       rotationMinContext: z
         .number()
         .min(8_192)
