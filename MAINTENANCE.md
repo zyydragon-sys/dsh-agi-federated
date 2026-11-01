@@ -64,3 +64,15 @@ you explicitly accept that tradeoff, and stop it afterwards.
 - [ ] `node scripts/monitor.mjs`
 - [ ] publish, then run `node scripts/monitor.mjs` again
 - [ ] verify the DSH profile bundle in `agi_status`
+
+## 不崩盘铁律（硬约束）
+
+1. **发布前必须过 `node scripts/preflight.mjs`**：语法 → 19 条自检 → 两个包的 apply 无头装配 →
+   profile 清单校验 → 客户端 5 个槽位渲染。`publish.mjs` 已把它设为默认闸门，
+   `--skip-preflight` 只在明确知情时使用。
+2. **定时器/后台任务一律 `.catch()`**：未处理的 Promise 拒绝会让 Host 退出。
+3. **插件在 Host 里绝不抛到 apply 外层**：所有外部服务访问走 `ctx.get?.()` + try/catch，缺失就降级。
+4. **profile 清单由自愈守护**：`profiles/<profile>/package.json` 被改坏（BOM/乱码/丢 bundle/被截断）时，
+   登录时启动项 + Host 内 `profileGuardCheck`（30s）会从 `package.json.golden` 恢复并留证。
+5. **验收口径**：`build` 版本号 + `overview.ok` + `/api/profile-guard` 无 problems + 工具可调用，
+   四者同时满足才算“没崩”。
