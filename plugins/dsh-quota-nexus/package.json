@@ -1,6 +1,6 @@
 {
   "name": "dsh-quota-nexus",
-  "version": "1.17.0",
+  "version": "1.18.1",
   "private": true,
   "type": "module",
   "description": "Multi-provider model quota nexus for DeepSeek Harness: provider registry, O(1) lease scheduler, write-behind ledger, breaker, SSE quota telemetry.",
