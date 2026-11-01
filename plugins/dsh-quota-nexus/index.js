@@ -345,7 +345,7 @@ const VENDOR_CATALOG = Object.freeze({
 const CNY_PER_USD_REF = 7.1
 
 /** 与 client.js 的 BUILD_TAG 同步的构建号；概览里下发，供客户端自愈判断。 */
-export const PLUGIN_BUILD = 'v1.22.2'
+export const PLUGIN_BUILD = 'v1.22.3'
 
 const PRICE_SNAPSHOT = Object.freeze({
   source: 'https://api-docs.deepseek.com/quick_start/pricing',
@@ -2441,11 +2441,25 @@ class QuotaNexusRuntime {
       await agentDefaultModel.saveSelection({ provider: next.provider, model: next.model, ...(effort ? { reasoningEffort: effort } : {}) })
       this.modelRotation.lastAppliedAt = new Date().toISOString()
       this.modelRotation.lastError = null
+      this.modelRotation.lastErrorAt = null
       this.publish('rotation', { provider: next.provider, model: next.model })
       return { ok: true, from: current, to: next, plan: pool }
     } catch (error) {
-      this.modelRotation.lastError = String(error?.message ?? error)
-      return { ok: false, code: 'quota_nexus_rotation_failed', message: this.modelRotation.lastError }
+      const message = String(error?.message ?? error)
+      this.modelRotation.lastError = message
+      this.modelRotation.lastErrorAt = new Date().toISOString()
+      // HMR 事务嵌套不是配置错误：它发生在宿主正在热重载时，稍后重试一次通常就好。
+      // 直接吞掉会让用户以为轮转坏了，所以标记为可重试并把原因带回去。
+      if (/HMR transactions cannot be nested/i.test(message)) {
+        const retry = setTimeout(() => {
+          void this.applyRotationStep().catch((error2) => {
+            this.modelRotation.lastError = String(error2?.message ?? error2)
+          })
+        }, 2000)
+        retry.unref?.()
+        return { ok: false, code: 'quota_nexus_rotation_hmr_busy', retryScheduled: true, message }
+      }
+      return { ok: false, code: 'quota_nexus_rotation_failed', message }
     }
   }
 
@@ -3305,7 +3319,7 @@ class QuotaNexusRuntime {
     try {
       await Promise.race([this.ready, sleep(250)])
       const counts = this.scheduler.counts()
-      const rotationView = { enabled: this.modelRotation.enabled, intervalMs: this.modelRotation.intervalMs, lastAppliedAt: this.modelRotation.lastAppliedAt, lastError: this.modelRotation.lastError }
+      const rotationView = { enabled: this.modelRotation.enabled, intervalMs: this.modelRotation.intervalMs, lastAppliedAt: this.modelRotation.lastAppliedAt, lastError: this.modelRotation.lastError, lastErrorAt: this.modelRotation.lastErrorAt ?? null }
       const base = {
         ok: true,
         plugin: PLUGIN,
