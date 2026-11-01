@@ -13,7 +13,7 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto'
-import { appendFile, chmod, mkdir, open, readFile, rename, rm } from 'node:fs/promises'
+import { appendFile, chmod, mkdir, open, readFile, readdir, rename, rm, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
@@ -856,7 +856,7 @@ class WriteBehind {
     if (this.timer || this.flushing || this.stopped) return
     this.timer = setTimeout(() => {
       this.timer = null
-      void this.flush()
+      void this.flush().catch((error) => this.warn('flush_failed', String(error?.message ?? error)))
     }, this.flushMs)
     this.timer.unref?.()
   }
@@ -1380,6 +1380,9 @@ class QuotaNexusRuntime {
     /** 被打了用量采集补丁的目标（实例/原型），停用时逐个还原。 */
     this.usageCaptureTargets = []
     this.usageCaptureOriginals = []
+    /** 每个会话已导入的累计用量（会话名 → totals），用于只导入增量。 */
+    this.sessionUsageSeen = new Map()
+    this.sessionUsageImported = 0
     this.modelLastUsed = new Map()
     this.inbox = []
     this.lastPublishWall = 0
@@ -1645,7 +1648,7 @@ class QuotaNexusRuntime {
     this.persistAlerts()
     this.publish('alert', { level, title, detail })
     for (const url of this.config.alertWebhookUrls) {
-      void this.postWebhook(url, entry)
+      void this.postWebhook(url, entry).catch((error) => this.warn('webhook_failed', String(error?.message ?? error)))
     }
     return true
   }
@@ -1666,7 +1669,9 @@ class QuotaNexusRuntime {
 
   persistAlerts() {
     const delivered = Object.fromEntries(this.alertDedupe)
-    void this.pool.writeJson(FILE.alerts, { version: 1, delivered, inbox: this.inbox.slice(0, 50) })
+    void this.pool
+      .writeJson(FILE.alerts, { version: 1, delivered, inbox: this.inbox.slice(0, 50) })
+      .catch((error) => this.warn('alerts_persist_failed', String(error?.message ?? error)))
   }
 
   recordHealth(rt) {
@@ -1862,7 +1867,7 @@ class QuotaNexusRuntime {
     await this.saveProviders()
     // 新增后立即拉一次官方余额（失败只记 warning，不影响状态）。
     const account = this.scheduler.accounts.get(record.id)
-    if (account) void this.fetchBalance(account)
+    if (account) void this.fetchBalance(account).catch((error) => this.warn('balance_failed', String(error?.message ?? error)))
     this.publish('providers', { action: 'add', id: record.id })
     return { ok: true, provider: this.providerView(record) }
   }
@@ -1920,7 +1925,7 @@ class QuotaNexusRuntime {
     this.rebuildAccounts()
     await this.saveProviders()
     const updated = this.scheduler.accounts.get(id)
-    if (updated) void this.fetchBalance(updated)
+    if (updated) void this.fetchBalance(updated).catch((error) => this.warn('balance_failed', String(error?.message ?? error)))
     this.publish('providers', { action: 'update', id })
     return { ok: true, provider: this.providerView(next) }
   }
@@ -2101,6 +2106,116 @@ class QuotaNexusRuntime {
         patched.push('patched')
       }
       return { attached: true, patched }
+  }
+
+  /**
+   * 从 DSH 自己的会话存储里导入真实 token 用量。
+   *
+   * 为什么不用拦截 llm：DSH 的 agent 使用的是它自己作用域里的 llm 实例，
+   * 插件侧对 streamWithRegistration 打的补丁覆盖不到（实测 calls 恒为 0）。
+   * 会话库里的 `tokenUsage.totals` 是权威数据（uncachedInputTokens /
+   * outputTokens / cacheReadTokens / cacheWriteTokens），这里只导入**增量**，
+   * 并按会话当前的路由（modelSelection.lastUsed）归属到厂商。
+   * 归属是近似的：如果两次轮询之间切换过模型，这批增量会记到最新路由上。
+   */
+  async syncSessionUsage() {
+    const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
+    const dir = join(home, 'storages', 'session_projcache', 'sessions')
+    let names = []
+    try {
+      names = await readdir(dir)
+    } catch {
+      return { ok: false, code: 'quota_nexus_no_session_store', imported: 0 }
+    }
+    const cutoff = wallNow() - 14 * 864e5
+    const files = []
+    for (const name of names) {
+      if (!name.endsWith('.json')) continue
+      const full = join(dir, name)
+      try {
+        const info = await stat(full)
+        if (info.mtimeMs >= cutoff) files.push({ name, full, at: info.mtimeMs })
+      } catch {
+        /* 单个文件读不到就跳过 */
+      }
+    }
+    files.sort((a, b) => b.at - a.at)
+    let imported = 0
+    for (const file of files.slice(0, 80)) {
+      let parsed
+      try {
+        parsed = JSON.parse(await readFile(file.full, 'utf8'))
+      } catch {
+        continue
+      }
+      const rows = parsed?.record?.rows
+      const totals = rows?.tokenUsage?.val?.totals
+      if (!totals || typeof totals !== 'object') continue
+      const lastUsed = rows?.modelSelection?.val?.lastUsed ?? null
+      const sessionId = file.name.replace(/\.json$/, '')
+      // 首次见到这个会话：只记录基线，不导入历史累计值。
+      // 历史归属无法还原（同一会话可能用过多个厂商），导入会把 A 的账算给 B。
+      if (!this.sessionUsageSeen.has(sessionId)) {
+        this.sessionUsageSeen.set(sessionId, {
+          uncachedInputTokens: Number(totals.uncachedInputTokens) || 0,
+          outputTokens: Number(totals.outputTokens) || 0,
+          cacheReadTokens: Number(totals.cacheReadTokens) || 0,
+          cacheWriteTokens: Number(totals.cacheWriteTokens) || 0,
+        })
+        this.usageImportedBaselineSample ??= {
+          session: sessionId,
+          tokens: (Number(totals.uncachedInputTokens) || 0) + (Number(totals.outputTokens) || 0),
+        }
+        continue
+      }
+      const previous = this.sessionUsageSeen.get(sessionId) ?? {}
+      const delta = {
+        uncachedInputTokens: Number(totals.uncachedInputTokens) - Number(previous.uncachedInputTokens ?? 0),
+        outputTokens: Number(totals.outputTokens) - Number(previous.outputTokens ?? 0),
+        cacheReadTokens: Number(totals.cacheReadTokens) - Number(previous.cacheReadTokens ?? 0),
+        cacheWriteTokens: Number(totals.cacheWriteTokens) - Number(previous.cacheWriteTokens ?? 0),
+      }
+      this.sessionUsageSeen.set(sessionId, {
+        uncachedInputTokens: Number(totals.uncachedInputTokens) || 0,
+        outputTokens: Number(totals.outputTokens) || 0,
+        cacheReadTokens: Number(totals.cacheReadTokens) || 0,
+        cacheWriteTokens: Number(totals.cacheWriteTokens) || 0,
+      })
+      // 计数回退说明会话被重置过：这一轮不导入，等下轮再算增量。
+      if (delta.uncachedInputTokens < 0 || delta.outputTokens < 0 || delta.cacheReadTokens < 0) continue
+      const tokens = delta.uncachedInputTokens + delta.outputTokens + delta.cacheReadTokens
+      if (tokens <= 0) continue
+      const route = String(lastUsed?.provider ?? '')
+      const model = String(lastUsed?.model ?? '')
+      const vendorId = vendorIdOfRoute(route)
+      if (!vendorId) continue
+      const record = [...this.providers.values()].find((entry) => entry.vendorId === vendorId)
+      if (!record) continue
+      const rt = this.scheduler.accounts.get(record.id)
+      if (!rt) continue
+      rt.events.push({
+        t: wallNow(),
+        model,
+        tokens,
+        input: delta.uncachedInputTokens,
+        output: delta.outputTokens,
+        cached: delta.cacheReadTokens,
+        session: sessionId,
+        endpoint: route,
+        source: 'session',
+      })
+      const eventCutoff = wallNow() - 30 * 864e5
+      while (rt.events.length > 5000) rt.events.shift()
+      while (rt.events.length > 0 && rt.events[0].t < eventCutoff) rt.events.shift()
+      rt.usage.requests += 1
+      rt.usage.tokens += tokens
+      imported += 1
+    }
+    if (imported > 0) {
+      this.sessionUsageImported += imported
+      this.publish('usage', { imported })
+    }
+    return { ok: true, scanned: files.length, imported, total: this.sessionUsageImported }
   }
 
   /** 还原 llm 用量采集补丁（停用/卸载时必须调用，避免原型上残留闭包）。 */
@@ -3155,7 +3270,7 @@ class QuotaNexusRuntime {
         },
         strategy: this.config.strategy,
         rotation: rotationView,
-        usageCapture: { ...this.usageCapture },
+        usageCapture: { ...this.usageCapture, sessionImported: this.sessionUsageImported },
         counts,
         ledger: this.ledger.snapshot(),
         alerts: this.inbox.slice(0, 20),
@@ -3233,6 +3348,12 @@ class QuotaNexusRuntime {
     every(this.config.probeIntervalMs, () => this.probeAll())
     // 余额/套餐快刷：让「0s 实时」由服务端轮询 + SSE 推送达成，页面无需刷新。
     every(this.config.balanceRefreshMs, () => this.refreshHot())
+    // 真实用量：从 DSH 会话库导入增量（20s 一次，失败只记警告）。
+    const syncUsage = () => {
+      void this.syncSessionUsage().catch((error) => this.warn('session_usage_failed', String(error?.message ?? error)))
+    }
+    syncUsage()
+    every(20_000, syncUsage)
     every(30_000, () => this.scheduler.refreshSets())
     if (this.config.discoveryAutoScan) {
       const timer = setTimeout(() => {
@@ -3393,6 +3514,11 @@ class HttpSurface {
           providerId: url.searchParams.get('providerId') ?? undefined,
         }),
       )
+    })
+
+    add('POST', '/api/usage/sync', async (req, res) => {
+      if (!this.guard(req, res)) return
+      writeJson(res, 200, { ok: true, result: await this.runtime.syncSessionUsage() })
     })
 
     add('GET', '/api/llm-diagnostics', async (req, res) => {
