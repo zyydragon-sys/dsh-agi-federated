@@ -1,6 +1,6 @@
 /**
  * dsh-quota-nexus — Client half (Web)。
- * build: 1.12.0 (pricing+peak)
+ * build: 1.12.1 (visible-build-tag)
  *
  * 在“设置 → Quota Nexus”里渲染卡片列表式供应商管理：
  *   每行 = 提供商名称 + 状态点（已连接/离线/异常）+ 右侧“编辑”“删除”；
@@ -28,6 +28,9 @@ window.__ModuleLoader__.load({
 
     const NS = 'quota-nexus'
     const BASE = '/quota-nexus'
+    /** 构建标记：页面上可见，用于确认浏览器加载的是哪一版客户端模块。 */
+    const BUILD_TAG = 'v1.12.1'
+
     const STRATEGIES = ['priority', 'round-robin', 'balanced', 'sticky']
 
     const DICT = {
@@ -949,7 +952,18 @@ window.__ModuleLoader__.load({
           h(
             'div',
             null,
-            h('h2', { style: style.title }, t('title')),
+            h(
+              'h2',
+              { style: { ...style.title, display: 'flex', alignItems: 'center', gap: 8 } },
+              t('title'),
+              h(
+                'span',
+                {
+                  style: { fontSize: 10.5, fontWeight: 400, color: 'var(--dsw-alias-label-secondary)', border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 999, padding: '0 8px' },
+                },
+                BUILD_TAG,
+              ),
+            ),
             h('p', { style: style.subtitle }, snapshot?.pool?.path ? `${t('subtitle')} · ${snapshot.pool.path}` : t('subtitle')),
           ),
           h(
