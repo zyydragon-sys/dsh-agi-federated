@@ -1,6 +1,6 @@
 /**
  * dsh-quota-nexus — Client half (Web)。
- * build: 1.1.1 (dual-protocol) — 该标记随发布变化，用于让浏览器取到新模块而不是旧缓存。
+ * build: 1.3.0 (balance-api) — 该标记随发布变化，用于让浏览器取到新模块而不是旧缓存。
  *
  * 在“设置 → Quota Nexus”里渲染卡片列表式供应商管理：
  *   每行 = 提供商名称 + 状态点（已连接/离线/异常）+ 右侧“编辑”“删除”；
@@ -60,6 +60,10 @@ window.__ModuleLoader__.load({
         'field.baseUrl': 'Base URL（OpenAI 兼容协议）',
         'field.baseUrl.anthropic': 'Base URL（Anthropic Messages 协议）',
         'field.baseUrl.both': 'Base URL（OpenAI 兼容协议 / Anthropic Messages 协议）',
+        'field.protocol': '接口协议（决定鉴权头）',
+        'field.balanceUrl': '余额接口 URL（可选，留空用官方端点）',
+        'field.balanceUrl.placeholder': '例如 https://api.deepseek.com/user/balance',
+        'protocol.auto': '自动（按厂商与 baseUrl 推断）',
         'proto.openai': 'OpenAI 兼容：authorization: Bearer <key> · 端点写到 …/v1',
         'proto.anthropic': 'Anthropic Messages：x-api-key + anthropic-version 2023-06-01 · 端点写到 …/v1',
         'discoveryIdle': '尚未扫描。点“扫描本机”只列出环境变量与客户端快照里的凭据候选，不会自动导入。',
@@ -78,6 +82,7 @@ window.__ModuleLoader__.load({
         'status.quota_low': '额度不足',
         'status.unconfigured': '未配置',
         'quotaLeft': '剩余额度',
+        'balance': '余额',
         'cooldownLeft': '冷却剩余',
         'alerts': '预警',
         'warnings': '诊断 warnings',
@@ -90,7 +95,7 @@ window.__ModuleLoader__.load({
         'discoveryHint': '自动扫描只列出候选，绝不静默导入；重复凭据会被标记。',
         'discoveryEmpty': '未发现本机凭据。',
         'duplicate': '已在池中',
-        'noQuotaData': '该账号尚未上报额度响应头',
+        'noQuotaData': '尚未观测到额度响应头（供应商未返回 x-ratelimit-* / anthropic-ratelimit-*）',
       },
       en: {
         'section.label': 'Quota Nexus',
@@ -121,6 +126,10 @@ window.__ModuleLoader__.load({
         'field.baseUrl': 'Base URL (OpenAI compatible)',
         'field.baseUrl.anthropic': 'Base URL (Anthropic Messages)',
         'field.baseUrl.both': 'Base URL (OpenAI compatible / Anthropic Messages)',
+        'field.protocol': 'Wire protocol (selects the auth header)',
+        'field.balanceUrl': 'Balance endpoint URL (optional; official endpoint when empty)',
+        'field.balanceUrl.placeholder': 'e.g. https://api.deepseek.com/user/balance',
+        'protocol.auto': 'Auto (inferred from vendor and baseUrl)',
         'proto.openai': 'OpenAI compatible: authorization: Bearer <key> · endpoint ends at …/v1',
         'proto.anthropic': 'Anthropic Messages: x-api-key + anthropic-version 2023-06-01 · endpoint ends at …/v1',
         'discoveryIdle': 'Not scanned yet. “Scan this machine” only lists credential candidates from env vars and client snapshots; nothing is imported automatically.',
@@ -139,6 +148,7 @@ window.__ModuleLoader__.load({
         'status.quota_low': 'Quota low',
         'status.unconfigured': 'Unconfigured',
         'quotaLeft': 'Quota left',
+        'balance': 'Balance',
         'cooldownLeft': 'Cooldown',
         'alerts': 'Alerts',
         'warnings': 'Diagnostic warnings',
@@ -151,7 +161,7 @@ window.__ModuleLoader__.load({
         'discoveryHint': 'Scanning only lists candidates; nothing is imported silently. Duplicates are flagged.',
         'discoveryEmpty': 'No local credential found.',
         'duplicate': 'Already in pool',
-        'noQuotaData': 'No quota headers reported yet',
+        'noQuotaData': 'No quota headers observed yet (provider returned no x-ratelimit-* / anthropic-ratelimit-*)',
       },
     }
 
@@ -377,6 +387,12 @@ window.__ModuleLoader__.load({
         provider.quotaRatio === null || provider.quotaRatio === undefined
           ? t('noQuotaData')
           : `${t('quotaLeft')} ${pct(provider.quotaRatio)}%`
+      const observed = provider.quotaObservedAt
+        ? ` · ${new Date(provider.quotaObservedAt).toLocaleTimeString()}`
+        : ''
+      const probeInfo = provider.lastProbeHttp
+        ? ` · probe HTTP ${provider.lastProbeHttp}${provider.lastProbeStatus ? ` (${provider.lastProbeStatus})` : ''}`
+        : ''
       const cooldown =
         provider.cooldownMs > 0 ? ` · ${t('cooldownLeft')} ${Math.ceil(provider.cooldownMs / 1000)}s` : ''
       return h(
@@ -395,10 +411,19 @@ window.__ModuleLoader__.load({
           h(
             'div',
             { style: style.meta },
-            `${provider.credential?.masked || '—'} · ${provider.baseUrl || '—'}${cooldown}`,
+            `${provider.credential?.masked || '—'} · ${provider.kind || 'openai-compatible'}${provider.protocolSource === 'inferred' ? ' (auto)' : ''} · ${provider.baseUrl || '—'}${cooldown}`,
           ),
           h(QuotaBar, { ratio: provider.quotaRatio }),
-          h('div', { style: style.meta }, quotaText),
+          h('div', { style: style.meta }, `${quotaText}${observed}${probeInfo}`),
+          provider.balance?.amount !== null && provider.balance?.amount !== undefined
+            ? h(
+                'div',
+                { style: { ...style.meta, fontWeight: 600 } },
+                `${t('balance')} ${provider.balance.currency ?? ''} ${provider.balance.amount}${
+                  provider.balance.observedAt ? ` · ${new Date(provider.balance.observedAt).toLocaleTimeString()}` : ''
+                }${provider.balance.available === false ? ' · 不可用' : ''}`,
+              )
+            : null,
         ),
         h(
           'div',
@@ -632,6 +657,8 @@ window.__ModuleLoader__.load({
     function ProviderDialog({ mode, provider, t, onClose, onSaved }) {
       const [tab, setTab] = useState('apikey')
       const [vendorId, setVendorId] = useState(provider?.vendorId ?? 'deepseek')
+      const [protocol, setProtocol] = useState(provider?.protocol ?? '')
+      const [balanceUrl, setBalanceUrl] = useState(provider?.balanceUrl ?? '')
       const [label, setLabel] = useState(provider?.label ?? '')
       const [baseUrl, setBaseUrl] = useState(provider?.baseUrl ?? '')
       const [apiKey, setApiKey] = useState('')
@@ -646,11 +673,20 @@ window.__ModuleLoader__.load({
         setMessage(null)
         const payload =
           mode === 'edit'
-            ? { id: provider.id, label: label || provider.label, baseUrl, apiKey: apiKey || undefined }
+            ? {
+                id: provider.id,
+                label: label || provider.label,
+                baseUrl,
+                protocol: protocol || '',
+                balanceUrl: balanceUrl || '',
+                apiKey: apiKey || undefined,
+              }
             : {
                 vendorId,
                 label: label || undefined,
                 baseUrl: baseUrl || undefined,
+                protocol: protocol || undefined,
+                balanceUrl: balanceUrl || undefined,
                 apiKey,
                 validate,
               }
@@ -733,7 +769,7 @@ window.__ModuleLoader__.load({
                   whiteSpace: 'nowrap',
                 },
               },
-              'v1.1.1 · OpenAI + Anthropic',
+              'v1.2.0 · OpenAI + Anthropic',
             ),
           ),
           h(
@@ -770,6 +806,7 @@ window.__ModuleLoader__.load({
                         setVendorId(event.target.value)
                         const found = VENDORS.find((entry) => entry.id === event.target.value)
                         if (found) setBaseUrl(found.baseUrl)
+                        setProtocol(event.target.value === 'custom-anthropic' ? 'anthropic-messages' : '')
                       },
                     },
                     ...VENDORS.map((entry) => h('option', { key: entry.id, value: entry.id }, entry.label)),
@@ -784,6 +821,34 @@ window.__ModuleLoader__.load({
                     value: label,
                     placeholder: VENDORS.find((entry) => entry.id === vendorId)?.label ?? '',
                     onChange: (event) => setLabel(event.target.value),
+                  }),
+                ),
+                h(
+                  'div',
+                  { style: style.field },
+                  h('span', { style: style.label }, t('field.protocol')),
+                  h(
+                    'select',
+                    {
+                      style: style.input,
+                      value: protocol,
+                      onChange: (event) => setProtocol(event.target.value),
+                    },
+                    h('option', { value: '' }, t('protocol.auto')),
+                    h('option', { value: 'openai-compatible' }, 'OpenAI 兼容（Bearer）'),
+                    h('option', { value: 'anthropic-messages' }, 'Anthropic Messages（x-api-key）'),
+                    h('option', { value: 'gemini' }, 'Gemini（x-goog-api-key）'),
+                  ),
+                ),
+                h(
+                  'div',
+                  { style: style.field },
+                  h('span', { style: style.label }, t('field.balanceUrl')),
+                  h('input', {
+                    style: style.input,
+                    value: balanceUrl,
+                    placeholder: provider?.balanceUrl ?? t('field.balanceUrl.placeholder'),
+                    onChange: (event) => setBalanceUrl(event.target.value),
                   }),
                 ),
                 h(
