@@ -36,7 +36,7 @@ node scripts/publish.mjs --plugin dsh-quota-nexus
 
 ## Left sidebar
 
-After the page is refreshed, the plugin adds an **AGI** icon to the left
+After DSH is restarted and the page is refreshed, the plugin adds an **AGI** icon to the left
 sidebar. Clicking it opens the installed-state panel: host/model, Hot Memory,
 evidence index, skills, audit chain, federation seams, repository link, and the
 pending market-PR milestone. The panel polls the same status route as the
@@ -94,4 +94,5 @@ D:\DeepSeek Harness\agi-federated\
 ## Design document
 
 The complete architecture is in [ARCHITECTURE.md](ARCHITECTURE.md): component boundaries, pure snapshot rules, BM25 formula, surface replacement protocol, evidence ladder, usage parsers, failure modes, threat model, and verification matrix.
+
 
