@@ -1,11 +1,27 @@
 # dsh-agi-federated
 
 **Author:** txcdragon  
-**Version:** 1.0.0  
+**Version:** 1.0.1  
 **Platform:** DeepSeek Harness Web (Host + `webServer` index tap)  
 **Persistence:** `D:\DeepSeek Harness\agi-federated` (created automatically)
 
 A federated AGI layer for DeepSeek Harness that combines bounded memory, deterministic context compaction, staged skill review, an evidence gate for factual claims, live token/cost observability, zero-trust audit, and advisory JEPA/CUV/mp-rcp seams.
+
+## Bundled plugins
+
+This repository ships more than one DSH bundle. The root is `dsh-agi-federated`; nested bundles live under `plugins/`.
+
+| Path | Bundle | What it is |
+|---|---|---|
+| `/` | `dsh-agi-federated` | The federated AGI layer described below. |
+| [`plugins/dsh-quota-nexus`](plugins/dsh-quota-nexus) | `dsh-quota-nexus` | Multi-provider quota pool: provider registry UI, O(1) lease scheduling with an 8-account budget, split 429/5xx breakers with credential fuse, write-behind usage ledger, and 0s SSE quota telemetry with 80/90/95% alerts. |
+
+Publishing local edits to GitHub (no git needed on this machine):
+
+```powershell
+node scripts/publish.mjs --all
+node scripts/publish.mjs --plugin dsh-quota-nexus
+```
 
 ## What it does
 
