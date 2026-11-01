@@ -2027,9 +2027,37 @@ class QuotaNexusRuntime {
     return routes
   }
 
+  /** 读取一条路由的能力特征（reasoning / 上下文 / 多模态），失败时降级为最小能力。 */
+  async capabilitiesOf(provider, model) {
+    const llm = this.ctx.get?.('llm')
+    const fallback = { reasoning: false, contextWindow: 0, vision: false }
+    if (!llm || typeof llm.resolveModelInfo !== 'function') return fallback
+    try {
+      const info = await llm.resolveModelInfo(provider, model)
+      return {
+        reasoning: Boolean(info?.reasoning),
+        contextWindow: Number(info?.context?.contextWindow) || 0,
+        vision: Array.isArray(info?.inputModalities) ? info.inputModalities.includes('image') : false,
+      }
+    } catch {
+      return fallback
+    }
+  }
+
+  /** 能力相容：不把强模型换成弱模型（reasoning/vision 不降级，上下文不显著缩水）。 */
+  static compatible(current, candidate, minContext = 131072, requireVision = true) {
+    if (current.reasoning && !candidate.reasoning) return false
+    if (requireVision && current.vision && !candidate.vision) return false
+    if (candidate.contextWindow > 0 && candidate.contextWindow < minContext) return false
+    return true
+  }
+
   /** 轮转计划：优先每个 provider 的代表模型，保证 DeepSeek ↔ MiniMax 这类跨供应商轮换。 */
   async rotationPlan() {
     const routes = await this.llmRoutes()
+    for (const route of routes) {
+      route.capabilities = await this.capabilitiesOf(route.provider, route.model)
+    }
     const byProvider = new Map()
     for (const route of routes) {
       if (!byProvider.has(route.provider)) byProvider.set(route.provider, [])
@@ -2041,7 +2069,15 @@ class QuotaNexusRuntime {
       const second = list.find((route) => route.model !== list[0].model)
       if (second) plan.push(second)
     }
-    return { routes, plan }
+    const agent = this.ctx.get?.('agentDefaultModel')
+    const current = agent?.currentSelection?.() ?? null
+    const currentRoute = plan.find((route) => route.provider === current?.provider && route.model === current?.model)
+    const caps = currentRoute?.capabilities ?? (current ? await this.capabilitiesOf(current.provider, current.model) : null)
+    const minContext = Number(this.config.rotationMinContext) || 131072
+    const strict = caps ? plan.filter((route) => this.constructor.compatible(caps, route.capabilities ?? {}, minContext, true)) : plan
+    const relaxed = caps ? plan.filter((route) => this.constructor.compatible(caps, route.capabilities ?? {}, minContext, false)) : plan
+    const pool = strict.length > 1 ? strict : relaxed.length > 1 ? relaxed : plan
+    return { routes, plan, pool, current, caps, minContext }
   }
 
   /** 应用一次轮转：调用 agentDefaultModel.saveSelection 切换 DSH 默认模型。 */
@@ -2050,17 +2086,17 @@ class QuotaNexusRuntime {
     if (!agentDefaultModel || typeof agentDefaultModel.saveSelection !== 'function') {
       return { ok: false, code: 'quota_nexus_no_default_model', message: 'agentDefaultModel 不可用，无法切换默认模型' }
     }
-    const { plan } = await this.rotationPlan()
+    const { pool } = await this.rotationPlan()
     if (!plan.length) return { ok: false, code: 'quota_nexus_no_llm_routes', message: '没有可用的 llm 路由（请先在 设置 → 模型 里添加供应商）' }
     const current = agentDefaultModel.currentSelection?.() ?? null
-    const index = plan.findIndex((route) => route.provider === current?.provider && route.model === current?.model)
-    const next = plan[(index + 1) % plan.length]
+    const index = pool.findIndex((route) => route.provider === current?.provider && route.model === current?.model)
+    const next = pool[(index + 1) % pool.length]
     try {
       await agentDefaultModel.saveSelection({ provider: next.provider, model: next.model })
       this.modelRotation.lastAppliedAt = new Date().toISOString()
       this.modelRotation.lastError = null
       this.publish('rotation', { provider: next.provider, model: next.model })
-      return { ok: true, from: current, to: next, plan }
+      return { ok: true, from: current, to: next, plan: pool }
     } catch (error) {
       this.modelRotation.lastError = String(error?.message ?? error)
       return { ok: false, code: 'quota_nexus_rotation_failed', message: this.modelRotation.lastError }
@@ -2948,6 +2984,9 @@ class QuotaNexusRuntime {
       timer.unref?.()
       disposers.push(() => clearInterval(timer))
     }
+    if (this.config.rotationEnabled) {
+      void this.setRotation({ enabled: true, intervalMs: this.config.rotationIntervalMs })
+    }
     every(this.config.probeIntervalMs, () => this.probeAll())
     // 余额/套餐快刷：让「0s 实时」由服务端轮询 + SSE 推送达成，页面无需刷新。
     every(this.config.balanceRefreshMs, () => this.refreshHot())
@@ -3114,14 +3153,17 @@ class HttpSurface {
 
     add('GET', '/api/rotation', async (req, res) => {
       if (!this.guard(req, res)) return
-      const { plan, routes } = await this.runtime.rotationPlan()
+      const { plan, routes, pool, current, caps, minContext } = await this.runtime.rotationPlan()
       const agentDefaultModel = this.runtime.ctx.get?.('agentDefaultModel')
       writeJson(res, 200, {
         ok: true,
         enabled: this.runtime.modelRotation.enabled,
         intervalMs: this.runtime.modelRotation.intervalMs,
-        current: agentDefaultModel?.currentSelection?.() ?? null,
+        minContext,
+        current: current ?? agentDefaultModel?.currentSelection?.() ?? null,
+        caps,
         plan,
+        pool,
         routes,
       })
     })
