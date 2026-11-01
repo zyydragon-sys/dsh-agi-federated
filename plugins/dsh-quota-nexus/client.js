@@ -29,7 +29,7 @@ window.__ModuleLoader__.load({
     const NS = 'quota-nexus'
     const BASE = '/quota-nexus'
     /** 构建标记：页面上可见，用于确认浏览器加载的是哪一版客户端模块。 */
-    const BUILD_TAG = 'v1.20.1'
+    const BUILD_TAG = 'v1.22.2'
 
     const STRATEGIES = ['priority', 'round-robin', 'balanced', 'sticky']
 
@@ -2177,6 +2177,125 @@ window.__ModuleLoader__.load({
     }
 
     /** 左侧栏图标点开后的主面板（main: key = quota-nexus）。 */
+    /**
+     * 顶部用量条（注册到 conversation.session.header.utilities）。
+     * 只读展示：当前模型、今日 token、人民币成本、缓存命中率。
+     * 每 15s 自取一次；不消费 SSE，避免和面板的订阅互相干扰。
+     */
+    function UsageStrip(props) {
+      const compact = props?.compact === true
+      useBuildSelfHeal()
+      const [data, setData] = useState(null)
+
+      useEffect(() => {
+        let alive = true
+        const load = () => {
+          void Promise.all([api('/api/overview'), api('/api/rotation'), api('/api/usage?range=day')])
+            .then(([overview, rotation, usage]) => {
+              if (alive) setData({ overview, rotation, usage })
+            })
+            .catch(() => {})
+        }
+        load()
+        const timer = setInterval(load, 15000)
+        return () => {
+          alive = false
+          clearInterval(timer)
+        }
+      }, [])
+
+      if (!data) return null
+      const rows = data.usage?.providers ?? []
+      const tokens = rows.reduce((sum, row) => sum + (Number(row?.totals?.tokens) || 0), 0)
+      const cost = rows.reduce((sum, row) => sum + (Number(row?.totals?.costAmount) || 0), 0)
+      const hits = rows.map((row) => row?.totals?.cacheHitRate).filter((value) => Number.isFinite(value))
+      const hit = hits.length ? Math.round((hits.reduce((sum, value) => sum + value, 0) / hits.length) * 10) / 10 : null
+      const current = data.rotation?.current ?? null
+      const model = current ? `${current.provider}/${current.model}` : '—'
+      const rotationOn = Boolean(data.rotation?.enabled)
+      const offline = data.overview?.ok === false
+      const short = (value) =>
+        value >= 1e9 ? (value / 1e9).toFixed(2) + 'B' : value >= 1e6 ? (value / 1e6).toFixed(2) + 'M' : value >= 1e3 ? (value / 1e3).toFixed(1) + 'K' : String(value)
+      const item = (value) => h('span', { style: { whiteSpace: 'nowrap' } }, value)
+      // 左下角空间窄：只留 模型短名 / 今日 tok / 成本。
+      const shortModel = model.includes('/') ? model.split('/')[1] : model
+      // 折叠导轨只有 56px：只留一个点 + 今日 token 缩写，不放模型名和金额。
+      if (props?.wide === false) {
+        return h(
+          'span',
+          {
+            'data-plugin': 'dsh-quota-nexus',
+            title: `${model} · 今日 ${short(tokens)} tok · ¥${cost.toFixed(4)}`,
+            style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)', whiteSpace: 'nowrap' },
+          },
+          `● ${short(tokens)}`,
+        )
+      }
+      const dot = h('span', { style: { opacity: 0.35 } }, '|')
+
+      return h(
+        'div',
+        {
+          'data-plugin': 'dsh-quota-nexus',
+          title: offline ? '额度中枢：REST 不可用' : `额度中枢 · 模型轮转${rotationOn ? '已开启' : '已关闭'}`,
+          style: {
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '2px 10px',
+            borderRadius: 999,
+            border: '1px solid var(--dsw-alias-border-l1)',
+            background: 'var(--dsw-alias-bg-base)',
+            fontSize: 11,
+            lineHeight: '18px',
+            color: 'var(--dsw-alias-label-secondary)',
+            whiteSpace: 'nowrap',
+          },
+        },
+        h(
+          'span',
+          { style: { color: offline ? 'var(--dsw-alias-state-error-primary)' : 'var(--dsw-alias-state-success-primary)' } },
+          '●',
+        ),
+        item(compact ? shortModel : model),
+        dot,
+        item(compact ? `${short(tokens)} tok` : `今日 ${short(tokens)} tok`),
+        dot,
+        item(`¥${cost.toFixed(4)}`),
+        compact || hit === null ? null : dot,
+        compact || hit === null ? null : item(`缓存 ${hit}%`),
+        compact || rotationOn ? null : h('span', { style: { opacity: 0.6 } }, '· 轮转关'),
+      )
+    }
+
+    /** 左下角（用户名上方）的窄胶囊：复用 UsageStrip 的 compact 变体。 */
+    function UsageFooter() {
+      return h(UsageStrip, { compact: true })
+    }
+
+    /**
+     * 版本自愈：客户端 bundle 与 Host 版本不一致时自动刷新一次页面。
+     * 用 sessionStorage 记一次性标记，避免版本永久不匹配时反复刷新。
+     */
+    function useBuildSelfHeal() {
+      useEffect(() => {
+        void api('/api/overview')
+          .then((overview) => {
+            const hostBuild = overview?.build
+            if (!hostBuild || hostBuild === BUILD_TAG) return
+            const flag = 'quota-nexus.reload.' + hostBuild
+            try {
+              if (sessionStorage.getItem(flag)) return
+              sessionStorage.setItem(flag, '1')
+            } catch {
+              return
+            }
+            window.location.reload()
+          })
+          .catch(() => {})
+      }, [])
+    }
+
     function QuotaNexusPanel() {
       return h(
         'div',
@@ -2192,6 +2311,35 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { style: { maxWidth: 960, margin: '0 auto' } },
+          // 悬浮窗自己的标题栏：不管下面的 section 渲染成什么样，版本胶囊一定在这里可见。
+          h(
+            'div',
+            {
+              style: {
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 8,
+                marginBottom: 12,
+                paddingBottom: 10,
+                borderBottom: '1px solid var(--dsw-alias-border-l1)',
+              },
+            },
+            h('strong', { style: { fontSize: 14, fontWeight: 600 } }, isZh() ? '额度中枢' : 'Quota Nexus'),
+            h(
+              'span',
+              {
+                style: {
+                  fontSize: 10.5,
+                  color: 'var(--dsw-alias-label-secondary)',
+                  border: '1px solid var(--dsw-alias-border-l1)',
+                  borderRadius: 999,
+                  padding: '1px 8px',
+                },
+              },
+              BUILD_TAG,
+            ),
+          ),
           h(QuotaNexusSection, null),
         ),
       )
@@ -2224,6 +2372,8 @@ window.__ModuleLoader__.load({
           if (typeof bound === 'function') translateRef = bound
         }
         const title = () => (isZh() ? '额度中枢' : 'Quota Nexus')
+        // 侧栏 label 带上构建号：刷新后一眼能确认浏览器加载的是哪一版 bundle。
+        const titleWithBuild = () => `${title()} · ${BUILD_TAG}`
 
         // 设置页：完整管理页（卡片列表 + 策略 + 预警）。
         ctx.slots.inject('settings.section', () =>
@@ -2233,10 +2383,26 @@ window.__ModuleLoader__.load({
           ),
         )
 
+        // 会话顶部栏：模型用量条（显示在用户窗口上方）。
+        ctx.slots.inject('conversation.session.header.utilities', () =>
+          ctx.slots.register(
+            { name: 'conversation.session.header.utilities', id: 'quota-nexus-usage', order: 10, label: titleWithBuild },
+            UsageStrip,
+          ),
+        )
+
+        // 左下角（用户名上方）：模型用量窄胶囊。
+        ctx.slots.inject('sidebar.footer.action', () =>
+          ctx.slots.register(
+            { name: 'sidebar.footer.action', id: 'quota-nexus-usage', order: 10, label: titleWithBuild },
+            UsageFooter,
+          ),
+        )
+
         // 左侧栏：面板图标（id 与下方 main 面板的 key 对应）。
         ctx.slots.inject('sidebar.panellist', () =>
           ctx.slots.register(
-            { name: 'sidebar.panellist', id: 'quota-nexus', order: 5, label: title },
+            { name: 'sidebar.panellist', id: 'quota-nexus', order: 5, label: titleWithBuild },
             QuotaNexusIcon,
           ),
         )
