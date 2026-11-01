@@ -40,6 +40,21 @@ export const DEFAULT_PRICING = Object.freeze({
     cacheRead: 0.07,
     cacheWrite: 0.27,
   }),
+  // Official DeepSeek V4.1 Flash off-peak USD rates per 1M tokens. Peak hours
+  // double the three model rates; `price()` applies the multiplier.
+  // https://api-docs.deepseek.com/quick_start/pricing
+  'deepseek/deepseek-flash': Object.freeze({
+    input: 0.15,
+    output: 0.6,
+    cacheRead: 0.003,
+    cacheWrite: 0.15,
+  }),
+  'deepseek-account/deepseek-flash': Object.freeze({
+    input: 0.15,
+    output: 0.6,
+    cacheRead: 0.003,
+    cacheWrite: 0.15,
+  }),
   'deepseek/deepseek-reasoner': Object.freeze({
     input: 0.55,
     output: 2.19,
