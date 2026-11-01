@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.0 — 2026-11-01
+
+- UI: clickable status cards open detail views for runtime/providers, Hot Memory,
+  Clue Store, evidence, skills, audit chain, and federation seams.
+- Host: `status?details=1` returns bounded memory/evidence/skills details on
+  demand; the default status payload stays compact.
+
 ## 1.1.0 — 2026-11-01
 
 - UI: add the left-sidebar AGI panel (`sidebar.panellist` + `main`) with live
