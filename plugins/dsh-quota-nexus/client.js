@@ -29,7 +29,7 @@ window.__ModuleLoader__.load({
     const NS = 'quota-nexus'
     const BASE = '/quota-nexus'
     /** 构建标记：页面上可见，用于确认浏览器加载的是哪一版客户端模块。 */
-    const BUILD_TAG = 'v1.17.0'
+    const BUILD_TAG = 'v1.18.1'
 
     const STRATEGIES = ['priority', 'round-robin', 'balanced', 'sticky']
 
@@ -805,6 +805,8 @@ window.__ModuleLoader__.load({
       const radius = 42
       const circumference = 2 * Math.PI * radius
       const sum = total || items.reduce((acc, item) => acc + item.value, 0)
+      const rawLabel = String(centerLabel ?? '')
+      const label = rawLabel.length > 7 ? rawLabel.slice(0, 7) + '…' : rawLabel
       let offset = 0
       const segments = items.map((item, index) => {
         const share = sum ? item.value / sum : 0
@@ -826,10 +828,10 @@ window.__ModuleLoader__.load({
       })
       return h(
         'svg',
-        { viewBox: '0 0 120 120', width: 132, height: 132, role: 'img', 'aria-label': centerLabel },
+        { viewBox: '0 0 120 120', width: 128, height: 128, role: 'img', 'aria-label': centerLabel, style: { flex: '0 0 auto' } },
         h('circle', { cx: 60, cy: 60, r: radius, fill: 'none', stroke: 'var(--dsw-alias-bg-layer-2)', strokeWidth: 17 }),
         ...segments,
-        h('text', { x: 60, y: 58, textAnchor: 'middle', fontSize: 10, fill: 'var(--dsw-alias-label-secondary)' }, centerLabel),
+        h('text', { x: 60, y: 56, textAnchor: 'middle', fontSize: 8.5, fill: 'var(--dsw-alias-label-secondary)' }, label),
         h('text', { x: 60, y: 74, textAnchor: 'middle', fontSize: 12, fontWeight: 700, fill: 'var(--dsw-alias-label-primary)' }, unit),
       )
     }
@@ -858,7 +860,7 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { style: { display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' } },
-          h(DonutChart, { items: items.map((item) => ({ value: valueOf(item) })), total, centerLabel: title, unit: centerUnit }),
+          h(DonutChart, { items: items.map((item) => ({ value: valueOf(item) })), total, centerLabel: t('dist.total'), unit: centerUnit }),
           h(
             'div',
             { style: { flex: '1 1 240px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3, fontSize: 11 } },
