@@ -769,7 +769,7 @@ window.__ModuleLoader__.load({
                   whiteSpace: 'nowrap',
                 },
               },
-              'v1.2.0 · OpenAI + Anthropic',
+              'v1.3.0 · OpenAI + Anthropic + Balance',
             ),
           ),
           h(
