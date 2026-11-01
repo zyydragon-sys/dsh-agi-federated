@@ -3,6 +3,11 @@
   "version": "1.0.0",
   "private": true,
   "author": "txcdragon",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zyydragon-sys/dsh-agi-federated.git"
+  },
+  "homepage": "https://github.com/zyydragon-sys/dsh-agi-federated#readme",
   "type": "module",
   "description": "Federated AGI layer for DeepSeek Harness: bounded hot memory, clue/BM25 recall, deterministic surface compaction, staged skills, evidence gate, usage/balance monitor, zero-trust audit, and JEPA/CUV/mp-rcp seams.",
   "keywords": [
