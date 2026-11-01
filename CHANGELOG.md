@@ -9,6 +9,9 @@
   view exposes input/cache/output tokens and the active pricing window.
 - UI: clickable status cards open detail views for runtime/providers, Hot Memory,
   Clue Store, evidence, skills, audit chain, and federation seams.
+- Models: track the effective provider/model per session from agent/request,
+  request/header, request/context, stream, and assistant events; the runtime
+  detail keeps a recent switch history instead of showing only DeepSeek.
 - Host: `status?details=1` returns bounded memory/evidence/skills details on
   demand; the default status payload stays compact.
 
