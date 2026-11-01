@@ -1,6 +1,6 @@
 # dsh-quota-nexus
 
-**Version:** 1.22.2 · **Bundle:** `plugins/dsh-quota-nexus` in
+**Version:** 1.22.3 · **Bundle:** `plugins/dsh-quota-nexus` in
 [`zyydragon-sys/dsh-agi-federated`](https://github.com/zyydragon-sys/dsh-agi-federated)
 
 多模型供应商额度池 + O(1) 租约调度 + 熔断恢复 + 0s 额度遥测。作为 DeepSeek Harness 的
