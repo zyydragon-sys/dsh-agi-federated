@@ -1,6 +1,6 @@
 /**
  * dsh-quota-nexus — Client half (Web)。
- * build: 1.8.0 (provider-rotation) — 该标记随发布变化，用于让浏览器取到新模块而不是旧缓存。
+ * build: 1.9.0 (plan-windows + usage + drilldown)
  *
  * 在“设置 → Quota Nexus”里渲染卡片列表式供应商管理：
  *   每行 = 提供商名称 + 状态点（已连接/离线/异常）+ 右侧“编辑”“删除”；
@@ -93,7 +93,34 @@ window.__ModuleLoader__.load({
         'models': '模型',
         'modelsNone': '尚未同步模型目录',
         'autoSwitch': '自动切换',
-        'rotateAmong': '轮转 {n} 家供应商',
+        'planTotal': '总额度',
+        'used': '已用',
+        'later': '后',
+        'usageDetail': '订阅套餐用量详情',
+        'range.day': '当日',
+        'range.week': '近 7 天',
+        'range.month': '近 30 天',
+        'total': '累计',
+        'peak': '单日峰值',
+        'activeDays': '活跃天数',
+        'noUsage': '本周期暂无经过插件的调用记录（只有真实调用才会统计）',
+        'chipHint': '点击查看明细',
+        'close': '收起',
+        'detail.live': '0s 实时状态',
+        'detail.providers': '供应商明细',
+        'detail.rotate': '模型轮转方案',
+        'detail.active': '活跃账号',
+        'detail.cooldown': '冷却账号',
+        'detail.relogin': '待重新登录',
+        'detail.ledger': '写入队列',
+        'detail.snapshot': '最近快照',
+        'detail.pool': '池目录',
+        'detail.writable': '可写',
+        'detail.readonly': '只读',
+        'detail.strategy': '调度策略',
+        'detail.usage': '本周期用量',
+        'detail.warnings': '诊断告警数',
+        'detail.none': '暂无条目',
         'syncedAt': '同步于',
         'syncModels': '同步模型',
         'usageWindow': '本周期',
@@ -180,7 +207,34 @@ window.__ModuleLoader__.load({
         'models': 'Models',
         'modelsNone': 'Model catalog not synced yet',
         'autoSwitch': 'Auto-route',
-        'rotateAmong': 'rotating across {n} providers',
+        'planTotal': 'total',
+        'used': 'used',
+        'later': ' later',
+        'usageDetail': 'Subscription usage details',
+        'range.day': 'Today',
+        'range.week': 'Last 7 days',
+        'range.month': 'Last 30 days',
+        'total': 'total',
+        'peak': 'peak day',
+        'activeDays': 'active days',
+        'noUsage': 'No calls went through the plugin in this period (only real calls are counted)',
+        'chipHint': 'Click for details',
+        'close': 'Collapse',
+        'detail.live': '0s live state',
+        'detail.providers': 'Provider details',
+        'detail.rotate': 'Model rotation plan',
+        'detail.active': 'Active accounts',
+        'detail.cooldown': 'Cooling accounts',
+        'detail.relogin': 'Needs re-login',
+        'detail.ledger': 'Write-behind queue',
+        'detail.snapshot': 'Last snapshot',
+        'detail.pool': 'Pool directory',
+        'detail.writable': 'writable',
+        'detail.readonly': 'read-only',
+        'detail.strategy': 'Scheduling strategy',
+        'detail.usage': 'Usage this period',
+        'detail.warnings': 'Diagnostic warnings',
+        'detail.none': 'Nothing to show',
         'syncedAt': 'synced',
         'syncModels': 'Sync models',
         'usageWindow': 'This window',
@@ -408,6 +462,19 @@ window.__ModuleLoader__.load({
 
     const pct = (ratio) => (typeof ratio === 'number' ? Math.round(ratio * 1000) / 10 : null)
 
+    /** 人类可读的倒计时：4 天 15 小时 / 4 小时 59 分 / 3 分 12 秒。 */
+    const fmtDuration = (ms) => {
+      const total = Math.max(0, Math.round(ms / 1000))
+      const day = Math.floor(total / 86400)
+      const hour = Math.floor((total % 86400) / 3600)
+      const minute = Math.floor((total % 3600) / 60)
+      const second = total % 60
+      if (day > 0) return `${day} 天 ${hour} 小时`
+      if (hour > 0) return `${hour} 小时 ${minute} 分`
+      if (minute > 0) return `${minute} 分 ${second} 秒`
+      return `${second} 秒`
+    }
+
     const StatusDot = ({ status }) =>
       h('span', {
         style: { ...style.dot, background: STATUS_COLOR[status] ?? STATUS_COLOR.unknown },
@@ -467,6 +534,34 @@ window.__ModuleLoader__.load({
             }`
           : t('plan.payg')
         : ''
+      const planWindows = plan?.windows ?? []
+      const windowsBlock = planWindows.length
+        ? h(
+            'div',
+            { style: { display: 'flex', flexDirection: 'column', gap: 8, marginTop: 2 } },
+            ...planWindows.map((window) =>
+              h(
+                'div',
+                { key: window.id, style: { display: 'flex', flexDirection: 'column', gap: 3 } },
+                h(
+                  'div',
+                  { style: { display: 'flex', justifyContent: 'space-between', fontSize: 11, gap: 8 } },
+                  h('span', { style: { color: 'var(--dsw-alias-label-primary)' } }, `${window.id} 限额`),
+                  h(
+                    'span',
+                    { style: { color: 'var(--dsw-alias-label-secondary)' } },
+                    `${t('planTotal')} ${window.limit ?? '∞'}${window.usedPct === null ? '' : ` · ${t('used')} ${window.usedPct}%`}${
+                      window.resetsAt
+                        ? ` · ${fmtDuration(new Date(window.resetsAt).getTime() - now)}${t('later')}${t('reset')}`
+                        : ''
+                    }`,
+                  ),
+                ),
+                h(QuotaBar, { ratio: window.usedPct === null ? null : 1 - window.usedPct / 100 }),
+              ),
+            ),
+          )
+        : null
       return h(
         'div',
         { style: style.card, 'data-quota-nexus': provider.id },
@@ -489,6 +584,7 @@ window.__ModuleLoader__.load({
           h('div', { style: style.meta }, `${quotaText}${observed}${probeInfo}`),
           usageText ? h('div', { style: style.meta }, usageText) : null,
           planText ? h('div', { style: { ...style.meta, fontWeight: 600 } }, planText) : null,
+          windowsBlock,
           h('div', { style: style.meta }, modelsText),
           autoText ? h('div', { style: { ...style.meta, color: 'var(--dsw-alias-brand-primary)' } }, autoText) : null,
           provider.balance?.amount !== null && provider.balance?.amount !== undefined
@@ -548,6 +644,17 @@ window.__ModuleLoader__.load({
       const [busy, setBusy] = useState(false)
       const [dialog, setDialog] = useState(null)
       const [nowWall, setNowWall] = useState(() => Date.now())
+      const [openChip, setOpenChip] = useState(null)
+      const [usageRange, setUsageRange] = useState('day')
+      const [usage, setUsage] = useState(null)
+
+      useEffect(() => {
+        void api(`/api/usage?range=${usageRange}`)
+          .then((payload) => {
+            if (payload?.ok) setUsage(payload)
+          })
+          .catch(() => {})
+      }, [usageRange, snapshot?.generatedAt])
 
       // 本地 1s 心跳：倒计时（重置/冷却）逐秒走，不需要再打服务端 → 观感是 0s 实时。
       useEffect(() => {
@@ -671,8 +778,87 @@ window.__ModuleLoader__.load({
 
       const providers = snapshot?.providers ?? []
       const counts = snapshot?.counts ?? {}
+      const accounts = snapshot?.accounts ?? []
       const alerts = (snapshot?.alerts ?? []).slice(0, 3)
       const warnings = snapshot?.warnings ?? []
+
+      /** 头部统计胶囊：点击展开对应明细。 */
+      const chipButton = (key, label, accent) =>
+        h(
+          'button',
+          {
+            key,
+            type: 'button',
+            'aria-expanded': openChip === key,
+            title: t('chipHint'),
+            style: {
+              ...style.chip,
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+              ...(accent
+                ? { color: 'var(--dsw-alias-state-success-primary)', borderColor: 'var(--dsw-alias-state-success-primary)' }
+                : {}),
+              ...(openChip === key
+                ? { background: 'var(--dsw-alias-bg-layer-1)', borderColor: 'var(--dsw-alias-border-l2)' }
+                : {}),
+            },
+            onClick: () => setOpenChip(openChip === key ? null : key),
+          },
+          label,
+        )
+
+      /** 当前展开的胶囊对应明细。 */
+      const detailLines = () => {
+        if (!openChip) return []
+        const lines = []
+        if (openChip === 'live') {
+          lines.push(`${t('detail.snapshot')}: ${snapshot?.generatedAt ?? '-'}`)
+          lines.push(`${t('detail.pool')}: ${snapshot?.pool?.path ?? '-'}（${snapshot?.pool?.writable ? t('detail.writable') : t('detail.readonly')}）`)
+          lines.push(`${t('detail.strategy')}: ${snapshot?.strategy ?? '-'}（${t('rotateAmong').replace('{n}', String(providers.length))}）`)
+          lines.push(`${t('detail.ledger')}: flushed ${snapshot?.ledger?.flushed ?? 0} · queued ${snapshot?.ledger?.queued ?? 0} · dropped ${snapshot?.ledger?.dropped ?? 0}`)
+        } else if (openChip === 'providers') {
+          for (const provider of providers) {
+            lines.push(
+              `${provider.label} · ${provider.vendorId} · ${provider.kind} · ${t(`status.${provider.status}`)}${
+                provider.balance?.amount !== null && provider.balance?.amount !== undefined
+                  ? ` · ${t('balance')} ${provider.balance.currency ?? ''} ${provider.balance.amount}`
+                  : ''
+              }`,
+            )
+          }
+          if (!lines.length) lines.push(t('detail.none'))
+        } else if (openChip === 'active' || openChip === 'cooldown' || openChip === 'relogin') {
+          const wanted = openChip === 'active' ? 'active' : openChip === 'cooldown' ? 'cooldown' : 'relogin'
+          for (const account of accounts) {
+            const hit =
+              wanted === 'active'
+                ? account.state === 'active'
+                : wanted === 'cooldown'
+                  ? account.state === 'cooldown' || account.cooldownMs > 0
+                  : account.needsRelogin
+            if (!hit) continue
+            lines.push(
+              `${account.account} · ${t(`status.${account.health === 'connected' ? 'connected' : 'unknown'}`)}${
+                account.cooldownMs > 0 ? ` · ${t('cooldownLeft')} ${Math.ceil(account.cooldownMs / 1000)}s` : ''
+              }${account.needsRelogin ? ` · ${t('status.needs_relogin')}` : ''}`,
+            )
+          }
+          if (!lines.length) lines.push(t('detail.none'))
+        } else if (openChip === 'ledger') {
+          lines.push(`${t('detail.ledger')}: queued ${snapshot?.ledger?.queued ?? 0} · flushed ${snapshot?.ledger?.flushed ?? 0} · dropped ${snapshot?.ledger?.dropped ?? 0}`)
+          lines.push(`${t('detail.usage')}: ${usage ? usage.providers?.map((row) => `${row.label} ${row.totals.requests}`).join(' · ') || '-' : '-'}`)
+          lines.push(`${t('detail.warnings')}: ${warnings.length}`)
+        } else if (openChip === 'rotate') {
+          for (const provider of providers) {
+            const auto = provider.autoModels ?? {}
+            const parts = Object.entries(auto).map(([task, model]) => `${task}→${model}`)
+            lines.push(`${provider.label}: ${parts.length ? parts.join(' · ') : t('modelsNone')}`)
+          }
+        }
+        return lines
+      }
+
+      const chipDetails = detailLines()
 
       return h(
         'section',
@@ -707,31 +893,49 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { style: style.chips },
-          h(
-            'span',
-            {
-              style: {
-                ...style.chip,
-                color: 'var(--dsw-alias-state-success-primary)',
-                borderColor: 'var(--dsw-alias-state-success-primary)',
-              },
-              title: snapshot?.generatedAt ?? '',
-            },
-            `● ${t('live')}`,
-          ),
-          h('span', { style: style.chip }, `providers ${counts.providers ?? 0}`),
+          chipButton('live', `● ${t('live')}`, true),
+          chipButton('providers', `providers ${counts.providers ?? 0}`),
           providers.length > 1
-            ? h(
-                'span',
-                { style: { ...style.chip, color: 'var(--dsw-alias-brand-primary)' } },
-                t('rotateAmong').replace('{n}', String(providers.length)),
-              )
+            ? chipButton('rotate', t('rotateAmong').replace('{n}', String(providers.length)))
             : null,
-          h('span', { style: style.chip }, `active ${counts.active ?? 0}`),
-          h('span', { style: style.chip }, `cooldown ${counts.cooling ?? 0}`),
-          h('span', { style: style.chip }, `re-login ${counts.needsRelogin ?? 0}`),
-          h('span', { style: style.chip }, `ledger ${snapshot?.ledger?.queued ?? 0}/${snapshot?.ledger?.flushed ?? 0}`),
+          chipButton('active', `active ${counts.active ?? 0}`),
+          chipButton('cooldown', `cooldown ${counts.cooling ?? 0}`),
+          chipButton('relogin', `re-login ${counts.needsRelogin ?? 0}`),
+          chipButton('ledger', `ledger ${snapshot?.ledger?.queued ?? 0}/${snapshot?.ledger?.flushed ?? 0}`),
         ),
+        openChip
+          ? h(
+              'div',
+              {
+                style: {
+                  border: '1px solid var(--dsw-alias-border-l1)',
+                  borderRadius: 10,
+                  background: 'var(--dsw-alias-bg-layer-1)',
+                  padding: '10px 12px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 4,
+                  fontSize: 11.5,
+                  color: 'var(--dsw-alias-label-secondary)',
+                },
+              },
+              h(
+                'div',
+                { style: { display: 'flex', justifyContent: 'space-between', marginBottom: 2 } },
+                h('strong', { style: { color: 'var(--dsw-alias-label-primary)' } }, t(`detail.${openChip}`)),
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    style: { ...style.button, padding: '1px 8px' },
+                    onClick: () => setOpenChip(null),
+                  },
+                  t('close'),
+                ),
+              ),
+              ...chipDetails.map((line, index) => h('div', { key: index }, line)),
+            )
+          : null,
         error ? h('div', { style: style.errorText }, `${t('loadFailed')}: ${error.message ?? error.code}`) : null,
         h(
           'div',
@@ -755,6 +959,65 @@ window.__ModuleLoader__.load({
             { type: 'button', style: style.addRow, onClick: () => setDialog({ mode: 'add' }) },
             t('add'),
           ),
+        ),
+        h(
+          'div',
+          { style: { display: 'flex', flexDirection: 'column', gap: 8, borderTop: '1px solid var(--dsw-alias-border-l1)', paddingTop: 10 } },
+          h(
+            'div',
+            { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' } },
+            h('div', { style: { ...style.label, fontSize: 12, fontWeight: 600, color: 'var(--dsw-alias-label-primary)' } }, t('usageDetail')),
+            h(
+              'div',
+              { style: { display: 'flex', gap: 6 } },
+              ...['day', 'week', 'month'].map((range) =>
+                h(
+                  'button',
+                  { key: range, type: 'button', style: range === usageRange ? style.tabActive : style.tab, onClick: () => setUsageRange(range) },
+                  t(`range.${range}`),
+                ),
+              ),
+            ),
+          ),
+          ...(usage?.providers ?? []).map((row) => {
+            const peak = Math.max(1, ...row.buckets.map((bucket) => bucket.tokens))
+            return h(
+              'div',
+              {
+                key: row.providerId,
+                style: { display: 'flex', flexDirection: 'column', gap: 4, padding: '8px 10px', border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 10, background: 'var(--dsw-alias-bg-layer-1)' },
+              },
+              h(
+                'div',
+                { style: { display: 'flex', justifyContent: 'space-between', fontSize: 12 } },
+                h('span', { style: { fontWeight: 600 } }, row.label),
+                h('span', { style: { color: 'var(--dsw-alias-label-secondary)' } }, `${row.totals.tokensText} Token`),
+              ),
+              h('div', { style: style.meta }, `${t('total')} ${row.totals.requests} ${t('unitRequests')} · ${t('peak')} ${row.totals.peakDayText} · ${t('activeDays')} ${row.totals.activeDays}`),
+              h(
+                'div',
+                { style: { display: 'flex', alignItems: 'flex-end', gap: 2, height: 42 } },
+                ...row.buckets.map((bucket, index) =>
+                  h('div', {
+                    key: index,
+                    title: `${new Date(bucket.at).toLocaleString()} · ${bucket.requests} req · ${bucket.tokens} tok`,
+                    style: {
+                      flex: '1 1 0',
+                      height: `${Math.max(3, Math.round((bucket.tokens / peak) * 100))}%`,
+                      background: bucket.tokens ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-bg-layer-2)',
+                      borderRadius: 2,
+                    },
+                  }),
+                ),
+              ),
+              ...row.models.slice(0, 4).map((model) =>
+                h('div', { key: model.model, style: style.meta }, `${model.model} · ${model.requests} ${t('unitRequests')} · ${model.tokens} tok`),
+              ),
+            )
+          }),
+          (usage?.providers ?? []).every((row) => row.totals.requests === 0)
+            ? h('div', { style: style.note }, t('noUsage'))
+            : null,
         ),
         alerts.length
           ? h(
