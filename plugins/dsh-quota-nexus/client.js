@@ -1,6 +1,6 @@
 /**
  * dsh-quota-nexus — Client half (Web)。
- * build: 1.12.1 (visible-build-tag)
+ * build: 1.12.2 (card-layout)
  *
  * 在“设置 → Quota Nexus”里渲染卡片列表式供应商管理：
  *   每行 = 提供商名称 + 状态点（已连接/离线/异常）+ 右侧“编辑”“删除”；
@@ -29,7 +29,7 @@ window.__ModuleLoader__.load({
     const NS = 'quota-nexus'
     const BASE = '/quota-nexus'
     /** 构建标记：页面上可见，用于确认浏览器加载的是哪一版客户端模块。 */
-    const BUILD_TAG = 'v1.12.1'
+    const BUILD_TAG = 'v1.12.2'
 
     const STRATEGIES = ['priority', 'round-robin', 'balanced', 'sticky']
 
@@ -359,17 +359,29 @@ window.__ModuleLoader__.load({
       card: {
         display: 'flex',
         alignItems: 'center',
-        gap: 12,
+        flexWrap: 'wrap',
+        gap: 10,
+        rowGap: 8,
         padding: '10px 12px',
         border: '1px solid var(--dsw-alias-border-l1)',
         borderRadius: 10,
         background: 'var(--dsw-alias-bg-layer-1)',
+        boxSizing: 'border-box',
+        minWidth: 0,
+        overflow: 'hidden',
       },
       dot: { width: 8, height: 8, borderRadius: 999, flex: '0 0 auto' },
       main: { flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 },
       rowTitle: { display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 },
       name: { fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
-      meta: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+      meta: {
+        fontSize: 11,
+        color: 'var(--dsw-alias-label-secondary)',
+        whiteSpace: 'normal',
+        wordBreak: 'break-word',
+        lineHeight: 1.55,
+        minWidth: 0,
+      },
       bar: { height: 4, borderRadius: 999, background: 'var(--dsw-alias-bg-layer-2)', overflow: 'hidden' },
       barFill: { height: '100%', borderRadius: 999, background: 'var(--dsw-alias-brand-primary)', transition: 'width 240ms ease' },
       button: {
@@ -379,6 +391,29 @@ window.__ModuleLoader__.load({
         borderRadius: 8,
         padding: '4px 10px',
         fontSize: 12,
+        cursor: 'pointer',
+      },
+      /** 卡片操作区的小号按钮：放得下 4 个且不挤占正文。 */
+      buttonSmall: {
+        border: '1px solid var(--dsw-alias-border-l2)',
+        background: 'transparent',
+        color: 'var(--dsw-alias-label-primary)',
+        borderRadius: 7,
+        padding: '3px 8px',
+        fontSize: 11,
+        lineHeight: 1.5,
+        whiteSpace: 'nowrap',
+        cursor: 'pointer',
+      },
+      buttonSmallDanger: {
+        border: '1px solid var(--dsw-alias-border-l2)',
+        background: 'transparent',
+        color: 'var(--dsw-alias-state-error-primary)',
+        borderRadius: 7,
+        padding: '3px 8px',
+        fontSize: 11,
+        lineHeight: 1.5,
+        whiteSpace: 'nowrap',
         cursor: 'pointer',
       },
       primary: {
@@ -689,11 +724,21 @@ window.__ModuleLoader__.load({
         ),
         h(
           'div',
-          { style: { display: 'flex', gap: 6, flex: '0 0 auto' } },
-          h('button', { type: 'button', style: style.button, onClick: () => onSyncModels(provider) }, t('syncModels')),
-          h('button', { type: 'button', style: style.button, onClick: () => onProbe(provider) }, t('probe')),
-          h('button', { type: 'button', style: style.button, onClick: () => onEdit(provider) }, t('edit')),
-          h('button', { type: 'button', style: style.danger, onClick: () => onDelete(provider) }, t('delete')),
+          {
+            style: {
+              display: 'flex',
+              gap: 4,
+              flex: '0 1 auto',
+              flexWrap: 'wrap',
+              justifyContent: 'flex-end',
+              marginLeft: 'auto',
+              minWidth: 0,
+            },
+          },
+          h('button', { type: 'button', style: style.buttonSmall, onClick: () => onSyncModels(provider) }, t('syncModels')),
+          h('button', { type: 'button', style: style.buttonSmall, onClick: () => onProbe(provider) }, t('probe')),
+          h('button', { type: 'button', style: style.buttonSmall, onClick: () => onEdit(provider) }, t('edit')),
+          h('button', { type: 'button', style: style.buttonSmallDanger, onClick: () => onDelete(provider) }, t('delete')),
         ),
       )
     }
@@ -1126,7 +1171,7 @@ window.__ModuleLoader__.load({
               ),
             ),
           ),
-          ...(usage?.providers ?? []).map((row) => {
+          ...(usage?.providers ?? []).filter((row) => row.totals.requests > 0).map((row) => {
             const peak = Math.max(1, ...row.buckets.map((bucket) => bucket.tokens))
             return h(
               'div',
