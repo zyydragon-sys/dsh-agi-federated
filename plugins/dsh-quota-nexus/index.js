@@ -389,10 +389,10 @@ const nextBillingChangeAt = (ms, holidays = []) => {
 }
 
 /** 用价格快照估算一次调用费用（USD）。无对应价格时返回 null。 */
-const estimateCost = (vendorId, model, usage, atMs, holidays) => {
+const estimateCost = (vendorId, model, usage, atMs, holidays, phaseOverride) => {
   const table = PRICE_SNAPSHOT.vendors[vendorId]
   if (!table || !table[model]) return null
-  const price = table[model][billingPhaseAt(atMs, holidays)]
+  const price = table[model][phaseOverride || billingPhaseAt(atMs, holidays)]
   if (!price) return null
   const perMillion = (tokens) => (Number(tokens) || 0) / 1_000_000
   return (
@@ -2149,6 +2149,7 @@ class QuotaNexusRuntime {
       output: Number(usageParts.output_tokens ?? usageParts.completion_tokens ?? 0) || 0,
       cached: Number(usageParts.prompt_cache_hit_tokens ?? usageParts.cached_tokens ?? 0) || 0,
       session: entry.token?.sessionKey ?? null,
+      endpoint: outcome.endpoint ?? null,
     })
     const cutoff = wallNow() - 30 * 864e5
     while (rt.events.length > 5000) rt.events.shift()
@@ -2463,14 +2464,21 @@ class QuotaNexusRuntime {
       const rt = this.scheduler.accounts.get(record.id)
       const events = (rt && Array.isArray(rt.events) ? rt.events : []).filter((event) => event.t >= from)
       const models = new Map()
+      let inputTokens = 0
+      let outputTokens = 0
+      let cachedTokens = 0
       const buckets = Array.from({ length: bucketCount }, (_, index) => ({
         at: new Date(bucketBase + index * bucketMs).toISOString(),
         requests: 0,
         tokens: 0,
+        input: 0,
+        output: 0,
+        cached: 0,
       }))
       const seriesMap = new Map()
       const days = new Map()
       const sessionStats = new Map()
+      const endpointStats = new Map()
       const modelCosts = new Map()
       let cost = 0
       let tokens = 0
@@ -2485,6 +2493,12 @@ class QuotaNexusRuntime {
         const index = Math.min(bucketCount - 1, Math.max(0, Math.floor((event.t - bucketBase) / bucketMs)))
         buckets[index].requests += 1
         buckets[index].tokens += eventTokens
+        buckets[index].input += Number(event.input) || 0
+        buckets[index].output += Number(event.output) || 0
+        buckets[index].cached += Number(event.cached) || 0
+        inputTokens += Number(event.input) || 0
+        outputTokens += Number(event.output) || 0
+        cachedTokens += Number(event.cached) || 0
         const series = seriesMap.get(key) || { model: key, requests: 0, tokens: 0, buckets: Array(bucketCount).fill(0) }
         series.requests += 1
         series.tokens += eventTokens
@@ -2494,10 +2508,14 @@ class QuotaNexusRuntime {
         days.set(dayKey, (days.get(dayKey) || 0) + eventTokens)
         const holidays = Array.isArray(this.config.billingHolidays) ? this.config.billingHolidays : []
         const eventCost = estimateCost(record.vendorId, key, event, event.t, holidays)
+        const listCost = estimateCost(record.vendorId, key, event, event.t, holidays, "peak")
         if (eventCost !== null) {
           cost += eventCost
           const costEntry = modelCosts.get(key) || { model: key, costUsd: 0 }
           costEntry.costUsd += eventCost
+          costEntry.listCostUsd = (costEntry.listCostUsd || 0) + (listCost || eventCost)
+          costEntry.requests = (costEntry.requests || 0) + 1
+          costEntry.tokens = (costEntry.tokens || 0) + eventTokens
           modelCosts.set(key, costEntry)
         }
         const sessionKey = event.session || '(unattributed)'
@@ -2506,6 +2524,16 @@ class QuotaNexusRuntime {
         sessionEntry.tokens += eventTokens
         if (eventCost !== null) sessionEntry.costUsd += eventCost
         sessionStats.set(sessionKey, sessionEntry)
+
+        const endpointKey = event.endpoint || "(unknown)"
+        const endpointEntry = endpointStats.get(endpointKey) || { endpoint: endpointKey, requests: 0, tokens: 0, costUsd: 0, listCostUsd: 0 }
+        endpointEntry.requests += 1
+        endpointEntry.tokens += eventTokens
+        if (eventCost !== null) {
+          endpointEntry.costUsd += eventCost
+          endpointEntry.listCostUsd += listCost || eventCost
+        }
+        endpointStats.set(endpointKey, endpointEntry)
       }
       const dayValues = [...days.values()]
       providers.push({
@@ -2524,10 +2552,15 @@ class QuotaNexusRuntime {
           costCurrency: 'USD',
           avgTokens: bucketCount ? Math.round(tokens / bucketCount) : 0,
           avgTokensText: scale(bucketCount ? Math.round(tokens / bucketCount) : 0),
+          inputTokens,
+          outputTokens,
+          cachedTokens,
+          cacheHitRate: inputTokens + cachedTokens > 0 ? Math.round((cachedTokens / (inputTokens + cachedTokens)) * 1000) / 10 : null,
         },
         models: [...models.values()].sort((a, b) => b.tokens - a.tokens),
         series: [...seriesMap.values()].sort((a, b) => b.tokens - a.tokens).slice(0, 6),
         costByModel: [...modelCosts.values()].sort((a, b) => b.costUsd - a.costUsd),
+        endpoints: [...endpointStats.values()].sort((a, b) => b.tokens - a.tokens).slice(0, 8),
         sessions: [...sessionStats.values()]
           .map((entry) => ({ ...entry, costUsd: Math.round(entry.costUsd * 1_000_000) / 1_000_000 }))
           .sort((a, b) => b.tokens - a.tokens)
