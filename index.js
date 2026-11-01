@@ -4314,6 +4314,38 @@ class AgiFederated {
           response.end(request.method === 'HEAD' ? undefined : UI_CLIENT_JS)
         },
       })
+      const errorDispose = register({
+        kind: 'exact',
+        path: '/agi-federated/client-error',
+        handler: async (request, response) => {
+          try {
+            if (request.method === 'POST') {
+              let body = ''
+              for await (const chunk of request) {
+                body += chunk
+                if (body.length > 16_000) break
+              }
+              try {
+                this.lastClientError = JSON.parse(body)
+              } catch {
+                this.lastClientError = { message: body.slice(0, 4000), at: Date.now() }
+              }
+              response.writeHead(204, { 'cache-control': 'no-store' })
+              response.end()
+              return
+            }
+            const body = JSON.stringify(this.lastClientError || {})
+            response.writeHead(200, {
+              'content-type': 'application/json; charset=utf-8',
+              'cache-control': 'no-store',
+            })
+            response.end(body)
+          } catch (error) {
+            response.writeHead(500, { 'content-type': 'application/json; charset=utf-8' })
+            response.end(JSON.stringify({ error: String(error) }))
+          }
+        },
+      })
       let indexDispose = () => undefined
       if (typeof web.tapIndex === 'function') {
         const query = new URLSearchParams({
@@ -4342,6 +4374,9 @@ class AgiFederated {
           } catch {}
           try {
             clientDispose()
+          } catch {}
+          try {
+            errorDispose()
           } catch {}
           try {
             indexDispose()
