@@ -29,7 +29,7 @@ window.__ModuleLoader__.load({
     const NS = 'quota-nexus'
     const BASE = '/quota-nexus'
     /** 构建标记：页面上可见，用于确认浏览器加载的是哪一版客户端模块。 */
-    const BUILD_TAG = 'v1.16.0'
+    const BUILD_TAG = 'v1.17.0'
 
     const STRATEGIES = ['priority', 'round-robin', 'balanced', 'sticky']
 
@@ -135,6 +135,7 @@ window.__ModuleLoader__.load({
         'kpi.activeDaysHint': '本周期有调用的天数',
         'kpi.cost': '消费（估算）',
         'kpi.costHint': '按官方价格快照 × 真实用量估算',
+        'fx.rate': '官方价目表为 USD，按汇率换算为人民币：',
         'peak': '高峰时段',
         'offpeak': '空闲时段',
         'switchIn': '切换倒计时',
@@ -288,6 +289,7 @@ window.__ModuleLoader__.load({
         'kpi.activeDaysHint': 'days with at least one call',
         'kpi.cost': 'Cost (est.)',
         'kpi.costHint': 'official price snapshot × real usage',
+        'fx.rate': 'Official prices are USD, converted at:',
         'peak': 'Peak hours',
         'offpeak': 'Off-peak',
         'switchIn': 'changes in',
@@ -788,7 +790,7 @@ window.__ModuleLoader__.load({
     /** 图表配色（高对比序列，暗色主题下可读）。 */
     const CHART_COLORS = ['#3fb6a8', '#f0b429', '#7aa7ff', '#e2708f', '#9b8cff', '#5cc27d', '#e08a4f', '#8b95a7']
 
-    const fmtMoney = (value) => '\u0024' + (Number(value) || 0).toFixed(4)
+    const fmtMoney = (value) => '\u00A5' + (Number(value) || 0).toFixed(4)
 
     const fmtTokensShort = (value) => {
       const n = Number(value) || 0
@@ -834,7 +836,7 @@ window.__ModuleLoader__.load({
 
     /** 分布卡：环形图 + 明细表（请求 / Token / 实际 / 标准）。 */
     function DistributionCard({ title, items, metric, t }) {
-      const valueOf = (item) => (metric === 'cost' ? item.costUsd : item.tokens)
+      const valueOf = (item) => (metric === 'cost' ? item.costCny ?? item.costUsd : item.tokens)
       const rows = items.slice(0, 6)
       const total = items.reduce((acc, item) => acc + valueOf(item), 0)
       const centerUnit = metric === 'cost' ? fmtMoney(total) : fmtTokensShort(total)
@@ -905,8 +907,8 @@ window.__ModuleLoader__.load({
                 ),
                 h('span', { style: { color: 'var(--dsw-alias-label-secondary)' } }, String(item.requests)),
                 h('span', { style: { color: 'var(--dsw-alias-label-secondary)' } }, fmtTokensShort(item.tokens)),
-                h('span', { style: { color: 'var(--dsw-alias-state-success-primary)' } }, fmtMoney(item.costUsd)),
-                h('span', { style: { color: 'var(--dsw-alias-label-secondary)' } }, fmtMoney(item.listCostUsd)),
+                h('span', { style: { color: 'var(--dsw-alias-state-success-primary)' } }, fmtMoney(item.costCny ?? item.costUsd)),
+                h('span', { style: { color: 'var(--dsw-alias-label-secondary)' } }, fmtMoney(item.listCostCny ?? item.listCostUsd)),
               ),
                 )
               : [h('div', { key: 'empty', style: { color: 'var(--dsw-alias-label-secondary)' } }, t('detail.none'))]),
@@ -999,7 +1001,7 @@ window.__ModuleLoader__.load({
           'div',
           { style: { ...style.meta, display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 } },
           h('span', null, t('total') + ' ' + row.totals.tokensText + ' tokens'),
-          h('span', null, t('kpi.cost') + ' ' + fmtMoney(row.totals.costUsd)),
+          h('span', null, t('kpi.cost') + ' ' + fmtMoney(row.totals.costCny ?? row.totals.costUsd)),
         ),
       )
     }
@@ -1273,8 +1275,9 @@ window.__ModuleLoader__.load({
       )
       const balanceCurrencies = [...new Set(providers.map((provider) => provider.balance?.currency).filter(Boolean))]
       const balanceText = providers.length ? `${balanceCurrencies.join('/') || '—'} ${balanceSum.toFixed(2)}` : '—'
-      const costUsd = usageRows.reduce((sum, row) => sum + (Number(row.totals.costUsd) || 0), 0)
-      const costText = `$${costUsd.toFixed(4)}`
+      const costCny = usageRows.reduce((sum, row) => sum + (Number(row.totals.costCny ?? row.totals.costUsd) || 0), 0)
+      const costText = '\u00A5' + costCny.toFixed(4)
+      const fxRate = Number(usage?.currency?.usdToCnyRate) || 0
       const fmtTokens = (value) =>
         value >= 1e9 ? (value / 1e9).toFixed(2) + 'B' : value >= 1e6 ? (value / 1e6).toFixed(2) + 'M' : value >= 1e3 ? (value / 1e3).toFixed(1) + 'K' : String(value)
 
@@ -1440,6 +1443,9 @@ window.__ModuleLoader__.load({
               h('div', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)' } }, label),
               h('div', { style: { fontSize: 18, fontWeight: 700 } }, [fmtTokens(totalTokens), String(totalRequests), costText, balanceText, String(activeDays)][index]),
               h('div', { style: style.meta }, [t('kpi.tokensHint'), t('kpi.requestsHint'), t('kpi.costHint'), t('kpi.balanceHint'), t('kpi.activeDaysHint')][index]),
+              index === 2 && fxRate
+                ? h('div', { style: { ...style.meta, marginTop: 2 } }, t('fx.rate') + ' 1 USD = ' + fxRate.toFixed(2) + ' CNY')
+                : null,
             ),
           ),
         ),
@@ -1567,7 +1573,7 @@ window.__ModuleLoader__.load({
                 `${t('sessions')}: ${(row.sessions ?? []).slice(0, 3).map((entry) => entry.session + ' ' + fmtTokens(entry.tokens)).join(' · ') || t('detail.none')}`,
               ),
               ...(row.costByModel ?? []).slice(0, 3).map((entry) =>
-                h('div', { key: 'cost-' + entry.model, style: style.meta }, `${entry.model} · $${entry.costUsd.toFixed(4)}`),
+                h('div', { key: 'cost-' + entry.model, style: style.meta }, `${entry.model} · \u00A5${(entry.costCny ?? entry.costUsd ?? 0).toFixed(4)}`),
               ),
               ...row.models.slice(0, 4).map((model) =>
                 h('div', { key: model.model, style: style.meta }, `${model.model} · ${model.requests} ${t('unitRequests')} · ${model.tokens} tok`),
@@ -1618,6 +1624,8 @@ window.__ModuleLoader__.load({
                       tokens: entry.tokens || 0,
                       costUsd: entry.costUsd || 0,
                       listCostUsd: entry.listCostUsd || 0,
+                      costCny: entry.costCny ?? entry.costUsd ?? 0,
+                      listCostCny: entry.listCostCny ?? entry.listCostUsd ?? 0,
                     })),
                   }),
                   (row.endpoints ?? []).length
@@ -1632,6 +1640,8 @@ window.__ModuleLoader__.load({
                           tokens: entry.tokens || 0,
                           costUsd: entry.costUsd || 0,
                           listCostUsd: entry.listCostUsd || 0,
+                          costCny: entry.costCny ?? entry.costUsd ?? 0,
+                          listCostCny: entry.listCostCny ?? entry.listCostUsd ?? 0,
                         })),
                       })
                     : null,
