@@ -286,6 +286,14 @@ const VENDOR_CATALOG = Object.freeze({
     models: [],
     keyEnv: '',
   },
+  /** 自定义 Anthropic Messages 协议端点：base_url 必填，鉴权为 x-api-key + anthropic-version。 */
+  'custom-anthropic': {
+    label: '自定义 Anthropic 协议服务（Messages）',
+    kind: 'anthropic-messages',
+    baseUrl: '',
+    models: [],
+    keyEnv: 'ANTHROPIC_BASE_URL',
+  },
 })
 
 const vendorOf = (provider) => VENDOR_CATALOG[provider?.vendorId] ?? VENDOR_CATALOG.custom
@@ -307,6 +315,9 @@ const probeUrl = (provider) => {
   if (kind === 'anthropic-messages') return joinUrl(base, '/models')
   return joinUrl(base, '/models')
 }
+
+/** 该供应商是否必须由用户显式提供 baseUrl（目录里没有默认端点）。 */
+const requiresBaseUrl = (vendorId) => !VENDOR_CATALOG[vendorId]?.baseUrl
 
 /* ------------------------------------------------------------------ *
  * 原子持久化
@@ -1339,8 +1350,12 @@ class QuotaNexusRuntime {
     const vendor = VENDOR_CATALOG[vendorId]
     const secret = typeof input?.apiKey === 'string' ? input.apiKey.trim() : ''
     const baseUrl = String(input?.baseUrl || vendor.baseUrl || '').trim()
-    if (vendorId === 'custom' && !baseUrl) {
-      return { ok: false, code: 'quota_nexus_base_url_required', message: '自定义供应商必须提供 baseUrl' }
+    if (requiresBaseUrl(vendorId) && !baseUrl) {
+      return {
+        ok: false,
+        code: 'quota_nexus_base_url_required',
+        message: `供应商 ${vendor.label} 没有内置端点，必须提供 baseUrl（例如 https://api.anthropic.com/v1）`,
+      }
     }
     if (!secret && !input?.allowEmpty) {
       return { ok: false, code: 'quota_nexus_credential_required', message: '缺少 API Key' }
@@ -1447,6 +1462,16 @@ class QuotaNexusRuntime {
       const latencyMs = Math.round(mono() - started)
       if (response.ok) {
         return { ok: true, status: 'connected', httpStatus: response.status, latencyMs }
+      }
+      // 中转/自建端点常常没有 /models：404/405 说明端点可达，只是没有探测接口。
+      if (response.status === 404 || response.status === 405) {
+        return {
+          ok: true,
+          status: 'reachable',
+          httpStatus: response.status,
+          latencyMs,
+          message: `${vendor.label} 可达，但未提供 /models 探测接口（HTTP ${response.status}）`,
+        }
       }
       return {
         ok: false,
