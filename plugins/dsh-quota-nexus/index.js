@@ -1037,6 +1037,7 @@ class Scheduler {
           remainingRatio: rt.quota.ratio ?? null,
           observedAt: rt.quota.observedAt ?? null,
         },
+        balance: rt.balance ?? null,
         counters: {
           failed429: rt.failed429,
           failed5xx: rt.failed5xx,
@@ -1991,6 +1992,7 @@ class QuotaNexusRuntime {
           accounts: [...this.scheduler.snapshotAccounts()].map((entry) => ({
             account: entry.account,
             quota: entry.quota,
+            balance: entry.balance ?? null,
             state: entry.state,
             cooldownMs: entry.cooldownMs,
           })),
