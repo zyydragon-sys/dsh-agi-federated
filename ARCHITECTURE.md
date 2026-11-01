@@ -1,14 +1,14 @@
 ﻿# dsh-agi-federated — Architecture Design
 
 **Author:** txcdragon  
-**Version:** 1.0.1  
+**Version:** 1.1.0  
 **Target:** DeepSeek Harness `0.2.1-rc.5` (compatible range `>=0.2.1-rc.5 <0.3.0`)  
 **License:** not declared by the package; choose one before public redistribution.
 
 ## 1. Executive summary
 
-`dsh-agi-federated` is one Host plugin plus one dependency-free floating-window
-script. It adds eight capabilities without changing the core Harness:
+`dsh-agi-federated` is one Host plugin plus a dependency-free floating-window
+script and a Client sidebar panel. It adds eight capabilities without changing the core Harness:
 
 1. bounded Hot Memory with a byte-stable snapshot;
 2. a Clue Store distilled by regular expressions and recalled with BM25;
@@ -26,7 +26,7 @@ No memory, clue, evidence, or usage record stores the original transcript.
 
 ## 2. Design constraints
 
-- **Four-file bundle.** The package is `package.json`, `cordis.patch.yml`,
+- **Small runtime surface.** The Host package is `package.json`, `cordis.patch.yml`,
   `schemas/config.js`, and `index.js`. Later documentation files (README and
   this document) are metadata, not runtime modules.
 - **Mandatory persistence root.** All data paths are normalized under
@@ -69,7 +69,7 @@ No memory, clue, evidence, or usage record stores the original transcript.
 ```
 
 The floating window is injected by `webServer.tapIndex`, not by a second Client
-file, so the original four-file lock still holds. The window polls the status
+file, so the floating window stays independent of the Client panel. The window polls the status
 route from the Host memory cache and never computes a model request itself.
 
 ## 4. Component map
@@ -84,7 +84,7 @@ route from the Host memory cache and never computes a model request itself.
 | `SkillStore` | `index.js` | staged write, deterministic review, promote |
 | `FederationArbiter` | `index.js` | JEPA/CUV/mp-rcp advisory dispatch |
 | `ProviderUsageTracker` | `index.js` | OpenAI, Anthropic, Gemini usage parsing |
-| UI script | `UI_CLIENT_JS` string | drag/collapse/poll floating window |
+| UI script | `UI_CLIENT_JS` string | drag/collapse/poll floating window |\n| Client panel | `client.js` | `sidebar.panellist` icon + `main` status page |
 
 ## 5. Configuration contract
 
@@ -376,7 +376,19 @@ The floating window is a self-contained IIFE served from the Host:
 - no iframe, no Harness Client package import, no `document.body` replacement.
 
 The Host injects one external `<script defer>` tag through `tapIndex`. This keeps
-the runtime to four files and avoids inline-script CSP issues.
+the runtime small and avoids inline-script CSP issues.
+
+The package also ships `client.js`, loaded by the Harness Client module loader.
+It registers two slots:
+
+- `sidebar.panellist` with id `agi-federated` — the left-side **AGI** icon;
+- `main` with key `agi-federated` — the installed-state panel opened by that
+  icon.
+
+The panel reads `/agi-federated/status` every two seconds, uses only
+`--dsw-alias-*` theme tokens, and renders the same live snapshot as the floating
+window. Client installation is visible only after the Web page is refreshed;
+the live slot tree is the verification surface.
 
 ## 15. Failure and degradation
 
@@ -456,6 +468,8 @@ The repository was created at 2026-11-01 17:41 Asia/Shanghai. The catalog
 requires a repository at least one day old, so the directory pull request is
 eligible from 2026-11-02 17:41 Asia/Shanghai. The prepared entry, README,
 architecture document, and archive live under `market-submission-txcdragon/`.
+
+
 
 
 
