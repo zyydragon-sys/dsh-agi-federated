@@ -1372,6 +1372,7 @@ class QuotaNexusRuntime {
     this.alertDedupe = new Map()
     // 模型轮转状态：task -> 游标；task:provider -> 最近使用时间（balanced 用）。
     this.modelCursor = new Map()
+    this.modelRotation = { enabled: false, intervalMs: 300000, order: [], cursor: 0, lastAppliedAt: null, lastError: null, timer: null }
     this.modelLastUsed = new Map()
     this.inbox = []
     this.lastPublishWall = 0
@@ -2000,6 +2001,86 @@ class QuotaNexusRuntime {
     await this.fetchBalance(rt)
     this.publish('probe', { account: maskAccount(rt.record), status: result.status, latencyMs: result.latencyMs })
     return { ok: false, account: maskAccount(rt.record), ...report }
+  }
+
+  /**
+   * 发现 DSH 真正可调用的 llm 路由（provider + model）。
+   * 只有这些路由才能安全地切换默认模型——本插件自建的额度账号不是 llm 路由。
+   */
+  async llmRoutes() {
+    const llm = this.ctx.get?.('llm')
+    if (!llm || typeof llm.listProviders !== 'function') return []
+    const providers = llm.listProviders()
+    const routes = []
+    for (const provider of providers) {
+      let models = []
+      try {
+        models = typeof llm.listModels === 'function' ? await llm.listModels(provider.id) : []
+      } catch (error) {
+        this.warn('llm_models_failed', `${provider.id}: ${error?.message ?? error}`)
+      }
+      if (!models.length) continue
+      for (const model of models) {
+        routes.push({ provider: provider.id, providerName: provider.name ?? provider.id, model: model.id, modelName: model.name ?? model.id })
+      }
+    }
+    return routes
+  }
+
+  /** 轮转计划：优先每个 provider 的代表模型，保证 DeepSeek ↔ MiniMax 这类跨供应商轮换。 */
+  async rotationPlan() {
+    const routes = await this.llmRoutes()
+    const byProvider = new Map()
+    for (const route of routes) {
+      if (!byProvider.has(route.provider)) byProvider.set(route.provider, [])
+      byProvider.get(route.provider).push(route)
+    }
+    const plan = []
+    for (const [provider, list] of byProvider) {
+      plan.push(list[0])
+      const second = list.find((route) => route.model !== list[0].model)
+      if (second) plan.push(second)
+    }
+    return { routes, plan }
+  }
+
+  /** 应用一次轮转：调用 agentDefaultModel.saveSelection 切换 DSH 默认模型。 */
+  async applyRotationStep() {
+    const agentDefaultModel = this.ctx.get?.('agentDefaultModel')
+    if (!agentDefaultModel || typeof agentDefaultModel.saveSelection !== 'function') {
+      return { ok: false, code: 'quota_nexus_no_default_model', message: 'agentDefaultModel 不可用，无法切换默认模型' }
+    }
+    const { plan } = await this.rotationPlan()
+    if (!plan.length) return { ok: false, code: 'quota_nexus_no_llm_routes', message: '没有可用的 llm 路由（请先在 设置 → 模型 里添加供应商）' }
+    const current = agentDefaultModel.currentSelection?.() ?? null
+    const index = plan.findIndex((route) => route.provider === current?.provider && route.model === current?.model)
+    const next = plan[(index + 1) % plan.length]
+    try {
+      await agentDefaultModel.saveSelection({ provider: next.provider, model: next.model })
+      this.modelRotation.lastAppliedAt = new Date().toISOString()
+      this.modelRotation.lastError = null
+      this.publish('rotation', { provider: next.provider, model: next.model })
+      return { ok: true, from: current, to: next, plan }
+    } catch (error) {
+      this.modelRotation.lastError = String(error?.message ?? error)
+      return { ok: false, code: 'quota_nexus_rotation_failed', message: this.modelRotation.lastError }
+    }
+  }
+
+  /** 开关自动轮转；intervalMs 最小 60s。 */
+  async setRotation({ enabled, intervalMs }) {
+    if (typeof intervalMs === 'number' && Number.isFinite(intervalMs)) {
+      this.modelRotation.intervalMs = Math.max(60000, Math.round(intervalMs))
+    }
+    if (typeof enabled === 'boolean') this.modelRotation.enabled = enabled
+    if (this.modelRotation.timer) { clearInterval(this.modelRotation.timer); this.modelRotation.timer = null }
+    if (this.modelRotation.enabled) {
+      const timer = setInterval(() => { void this.applyRotationStep() }, this.modelRotation.intervalMs)
+      timer.unref?.()
+      this.modelRotation.timer = timer
+    }
+    const { plan, routes } = await this.rotationPlan()
+    return { ok: true, enabled: this.modelRotation.enabled, intervalMs: this.modelRotation.intervalMs, plan, routes }
   }
 
   /** 计费时段视图：仅对有官方价格快照的厂商（DeepSeek）给出高峰/空闲与切换倒计时。 */
@@ -2791,6 +2872,7 @@ class QuotaNexusRuntime {
     try {
       await Promise.race([this.ready, sleep(250)])
       const counts = this.scheduler.counts()
+      const rotationView = { enabled: this.modelRotation.enabled, intervalMs: this.modelRotation.intervalMs, lastAppliedAt: this.modelRotation.lastAppliedAt, lastError: this.modelRotation.lastError }
       const base = {
         ok: true,
         plugin: PLUGIN,
@@ -2801,6 +2883,7 @@ class QuotaNexusRuntime {
           writable: this.pool.ready,
         },
         strategy: this.config.strategy,
+        rotation: rotationView,
         counts,
         ledger: this.ledger.snapshot(),
         alerts: this.inbox.slice(0, 20),
@@ -3027,6 +3110,35 @@ class HttpSurface {
           providerId: url.searchParams.get('providerId') ?? undefined,
         }),
       )
+    })
+
+    add('GET', '/api/rotation', async (req, res) => {
+      if (!this.guard(req, res)) return
+      const { plan, routes } = await this.runtime.rotationPlan()
+      const agentDefaultModel = this.runtime.ctx.get?.('agentDefaultModel')
+      writeJson(res, 200, {
+        ok: true,
+        enabled: this.runtime.modelRotation.enabled,
+        intervalMs: this.runtime.modelRotation.intervalMs,
+        current: agentDefaultModel?.currentSelection?.() ?? null,
+        plan,
+        routes,
+      })
+    })
+
+    add('POST', '/api/rotation', async (req, res) => {
+      if (!this.guard(req, res)) return
+      try {
+        const body = await readJsonBody(req)
+        writeJson(res, 200, await this.runtime.setRotation({ enabled: body?.enabled, intervalMs: body?.intervalMs }))
+      } catch (error) {
+        writeJson(res, 400, { ok: false, code: 'quota_nexus_bad_request', message: error?.message ?? String(error) })
+      }
+    })
+
+    add('POST', '/api/rotation/step', async (req, res) => {
+      if (!this.guard(req, res)) return
+      writeJson(res, 200, await this.runtime.applyRotationStep())
     })
 
     add('GET', '/api/usage', async (req, res) => {
