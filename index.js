@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { CONFIG_VERSION, DEFAULT_CONFIG, normalizeConfig, validateConfig } from './schemas/config.js'
 
 const PLUGIN_ID = 'dsh-agi-federated'
-const PLUGIN_VERSION = '1.1.0'
+const PLUGIN_VERSION = '1.2.0'
 const MEMORY_FILE = 'memory.json'
 const EVIDENCE_FILE = 'evidence.json'
 const USAGE_FILE = 'usage.json'
@@ -3363,7 +3363,7 @@ class AgiFederated {
     }
   }
 
-  async status(sessionId) {
+  async status(sessionId, includeDetails = false) {
     await this.ready
     const sid = asString(sessionId) || this.lastSessionId
     const session = sid ? this.ctx?.get?.('sessions')?.get?.(sid) : undefined
@@ -3430,6 +3430,42 @@ class AgiFederated {
     } catch {
       // Counts are informational.
     }
+    let skillList = []
+    if (includeDetails) {
+      try {
+        skillList = await this.skills.list('all')
+      } catch {
+        // Detail view degrades to an empty list.
+      }
+    }
+    const details = includeDetails
+      ? {
+          memory: {
+            text: this.renderMemoryPrompt(sid),
+            records: (this.memory.sessions.get(sid) || []).length,
+            clues: [...this.memory.clues.values()]
+              .filter((clue) => !sid || clue.sessionId === sid)
+              .slice(-40)
+              .map((clue) => ({
+                kind: clue.kind,
+                summary: clue.summary,
+                keywords: clue.keywords,
+                importance: clue.importance,
+                anchors: clue.anchors,
+              })),
+          },
+          evidence: {
+            recent: ((this.evidence.bySession.get(sid) || []).slice(-30)).map((record) => ({
+              tool: record.tool,
+              level: record.level,
+              summary: record.summary,
+              at: record.at,
+              anchors: [...(record.params || []), ...(record.anchors || [])].slice(0, 8),
+            })),
+          },
+          skills: { list: skillList },
+        }
+      : undefined
     const federation = {}
     for (const kind of ['jepa', 'cuv', 'mpRcp']) {
       const config = this.config.federation[kind]
@@ -3472,6 +3508,7 @@ class AgiFederated {
       federation,
       compat: this.compat,
       audit: this.audit.snapshot(),
+      ...(details ? { details } : {}),
       lastSettlement: this.lastSettlement,
       lastBalanceRefresh: this.lastBalanceRefresh,
       degraded: this.degraded,
@@ -3748,7 +3785,8 @@ class AgiFederated {
           try {
             const url = new URL(request.url || '/', 'http://127.0.0.1')
             const sid = url.searchParams.get('sessionId') || url.searchParams.get('session') || ''
-            const body = JSON.stringify(await this.status(sid))
+            const includeDetails = url.searchParams.get('details') === '1'
+            const body = JSON.stringify(await this.status(sid, includeDetails))
             response.writeHead(200, {
               'content-type': 'application/json; charset=utf-8',
               'cache-control': 'no-store, max-age=0',
