@@ -96,7 +96,7 @@ window.__ModuleLoader__.load({
       const clues = (d.memory?.clues || []).filter((clue) => matches(clue.summary) || matches((clue.keywords || []).join(' ')));
       const evidence = (d.evidence?.recent || []).filter((record) => matches(record.tool) || matches(record.summary));
       const skills = (d.skills?.list || []).filter((skill) => matches(skill.name) || matches((skill.tags || []).join(' ')));
-      const titles = { runtime: '运行状态', memory: '记忆与证据', skills: '技能与审计', federation: '联邦 seams' };
+      const titles = { runtime: '运行状态', memory: '记忆与证据', skills: '技能与审计', federation: '联邦 seams', health: '信任自检' };
       const searchable = kind === 'memory' || kind === 'skills';
       let body = null;
       if (state.loading) body = h('p', { style: { color: 'var(--dsw-alias-label-secondary)' } }, '读取中…');
@@ -149,6 +149,17 @@ window.__ModuleLoader__.load({
             key: index,
             style: { padding: '8px 0', borderBottom: '1px solid var(--dsw-alias-border-l1)', fontSize: 12 },
           }, h('div', { style: { fontWeight: 600 } }, '[' + entry.kind + '] ' + (entry.subject || '')), h('div', { style: { color: 'var(--dsw-alias-label-secondary)', marginTop: 3 } }, entry.reason || '—'))),
+        );
+      } else if (kind === 'health') {
+        body = h(React.Fragment, null,
+          h(Row, { label: 'Host', value: data.health?.ok ? 'ok' : 'degraded' }),
+          h(Row, { label: 'Audit chain', value: data.audit?.broken ? 'broken' : '完整' }),
+          h(Row, { label: 'Evidence gate', value: data.health?.evidenceGate || '—' }),
+          h(Row, { label: 'Memory bounded', value: data.health?.memoryBounded ? 'yes' : 'no' }),
+          h(Row, { label: 'Model tracked', value: data.health?.modelTracked ? 'yes' : 'no' }),
+          h(Row, { label: 'Context level', value: data.health?.contextLevel || '—' }),
+          h(Row, { label: 'Pricing window', value: data.pricing?.peak ? 'peak' : 'off-peak' }),
+          h('p', { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 12, marginTop: 12 } }, '白箱自检只报告可观测事实；不自动修改证据、模型或审计状态。'),
         );
       } else {
         body = h(React.Fragment, null,
@@ -235,7 +246,14 @@ window.__ModuleLoader__.load({
             ),
             h('p', { style: { margin: '4px 0 0 48px', color: 'var(--dsw-alias-label-secondary)', fontSize: 13 } }, 'DeepSeek Harness 插件安装成果'),
           ),
-          h(Chip, { tone: ok && !degraded ? 'ok' : degraded ? 'warn' : 'bad' }, loading ? '读取中' : ok && !degraded ? '已安装 · ACTIVE' : degraded ? '已安装 · DEGRADED' : '未连接'),
+          h('div', { style: { display: 'flex', alignItems: 'center', gap: 8 } },
+            h('button', {
+              onClick: () => window.location.reload(),
+              title: '重新加载 Web 界面；Host 中的运行会话和排队消息不受影响',
+              style: { border: '1px solid var(--dsw-alias-border-l1)', background: 'transparent', color: 'var(--dsw-alias-label-secondary)', borderRadius: 7, padding: '4px 10px', cursor: 'pointer', fontSize: 12 },
+            }, '刷新界面'),
+            h(Chip, { tone: ok && !degraded ? 'ok' : degraded ? 'warn' : 'bad' }, loading ? '读取中' : ok && !degraded ? '已安装 · ACTIVE' : degraded ? '已安装 · DEGRADED' : '未连接'),
+          ),
         ),
         error ? h('div', { style: { marginBottom: 16, padding: '10px 12px', borderRadius: 8, border: '1px solid var(--dsw-alias-state-warn-primary)', color: 'var(--dsw-alias-state-warn-primary)', fontSize: 13 } }, '状态读取失败：' + error) : null,
         h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 18, fontSize: 12, color: 'var(--dsw-alias-label-secondary)' } },
@@ -269,6 +287,12 @@ window.__ModuleLoader__.load({
               label: key === 'mpRcp' ? 'mp-rcp' : key.toUpperCase(),
               value: fed[key] ? (fed[key].enabled ? (fed[key].blocking ? 'enabled · blocking' : 'enabled · advisory') : 'disabled') : '—',
             })),
+          ),
+          h(Card, { title: '信任自检', onClick: () => openDetail('health') },
+            h(Row, { label: 'Host', value: data?.health?.ok ? 'ok' : 'degraded' }),
+            h(Row, { label: 'Audit chain', value: data?.health?.auditChain || '—' }),
+            h(Row, { label: 'Evidence gate', value: data?.health?.evidenceGate || '—' }),
+            h(Row, { label: 'Model tracked', value: data?.health?.modelTracked ? 'yes' : 'no' }),
           ),
         ),
         h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 18, alignItems: 'center' } },
