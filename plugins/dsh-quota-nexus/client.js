@@ -29,7 +29,7 @@ window.__ModuleLoader__.load({
     const NS = 'quota-nexus'
     const BASE = '/quota-nexus'
     /** 构建标记：页面上可见，用于确认浏览器加载的是哪一版客户端模块。 */
-    const BUILD_TAG = 'v1.14.0'
+    const BUILD_TAG = 'v1.15.1'
 
     const STRATEGIES = ['priority', 'round-robin', 'balanced', 'sticky']
 
@@ -1337,7 +1337,22 @@ window.__ModuleLoader__.load({
             ? h('span', { style: style.meta }, t('rotation.current') + ' ' + rotation.current.provider + '/' + rotation.current.model)
             : null,
           rotation?.plan?.length
-            ? h('span', { style: style.meta }, t('rotation.plan') + ' ' + rotation.plan.map((entry) => entry.provider + '/' + entry.model).join(' → '))
+            ? h('span', { style: style.meta },
+                t('rotation.plan') + ' ' +
+                  rotation.plan
+                    .map((entry) => {
+                      const caps = entry.capabilities ?? {}
+                      const tag = [
+                        caps.reasoning ? 'R' : null,
+                        caps.vision ? 'V' : null,
+                        caps.contextWindow ? Math.round(caps.contextWindow / 1000) + 'K' : null,
+                      ]
+                        .filter(Boolean)
+                        .join('·')
+                      return entry.provider + '/' + entry.model + (tag ? ' (' + tag + ')' : '')
+                    })
+                    .join(' → '),
+              )
             : h('span', { style: style.meta }, t('rotation.noRoutes')),
           h('button', { type: 'button', style: style.buttonSmall, disabled: busy, onClick: () => void stepRotation() }, t('rotation.step')),
         ),
