@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "额度中枢 Quota Nexus",
+    "description": "多模型供应商额度池：卡片列表式供应商管理、O(1) 租约调度（单请求最多 8 个账号）、熔断与冷却、Write-Behind 用量账本、SSE 0s 实时额度遥测与多级预警。"
+  }
+}
