@@ -33,7 +33,7 @@ const value = (name) => {
   return index >= 0 ? argv[index + 1] : undefined
 }
 
-const DEFAULT_REQUIRED = ['dsh-quota-nexus', 'dsh-agi-federated']
+const DEFAULT_REQUIRED = ['dsh-quota-nexus']
 const required = (value('--require') ?? DEFAULT_REQUIRED.join(',')).split(',').map((s) => s.trim()).filter(Boolean)
 const profileDir =
   value('--profile') ||
