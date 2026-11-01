@@ -1405,6 +1405,10 @@ class QuotaNexusRuntime {
       const state = await this.pool.readJson(FILE.state, { version: 1, accounts: {} })
       this.restoreState(state)
       this.rebuildAccounts()
+      if (state && state.rotation && typeof state.rotation === 'object') {
+        if (typeof state.rotation.enabled === 'boolean') this.modelRotation.enabled = state.rotation.enabled
+        if (Number.isFinite(Number(state.rotation.intervalMs))) this.modelRotation.intervalMs = Math.max(60000, Math.round(Number(state.rotation.intervalMs)))
+      }
       const alerts = await this.pool.readJson(FILE.alerts, { version: 1, delivered: {} })
       for (const key of Object.keys(alerts?.delivered ?? {})) this.alertDedupe.set(key, alerts.delivered[key])
       await this.restoreOAuth()
@@ -1686,7 +1690,7 @@ class QuotaNexusRuntime {
         cooldownKind: rt.cooldownKind,
       }
     }
-    await this.pool.writeJson(FILE.state, { version: 1, savedAt: new Date().toISOString(), accounts })
+    await this.pool.writeJson(FILE.state, { version: 1, savedAt: new Date().toISOString(), accounts, rotation: { enabled: this.modelRotation.enabled, intervalMs: this.modelRotation.intervalMs } })
   }
 
   /* ---------------- 供应商 CRUD ---------------- */
@@ -2030,12 +2034,15 @@ class QuotaNexusRuntime {
   /** 读取一条路由的能力特征（reasoning / 上下文 / 多模态），失败时降级为最小能力。 */
   async capabilitiesOf(provider, model) {
     const llm = this.ctx.get?.('llm')
-    const fallback = { reasoning: false, contextWindow: 0, vision: false }
+    const fallback = { reasoning: false, efforts: [], defaultEffort: null, contextWindow: 0, vision: false }
     if (!llm || typeof llm.resolveModelInfo !== 'function') return fallback
     try {
       const info = await llm.resolveModelInfo(provider, model)
+      const efforts = Array.isArray(info?.reasoning?.efforts) ? info.reasoning.efforts.map((effort) => effort.id) : []
       return {
         reasoning: Boolean(info?.reasoning),
+        efforts,
+        defaultEffort: info?.reasoning?.defaultEffort ?? null,
         contextWindow: Number(info?.context?.contextWindow) || 0,
         vision: Array.isArray(info?.inputModalities) ? info.inputModalities.includes('image') : false,
       }
@@ -2063,11 +2070,13 @@ class QuotaNexusRuntime {
       if (!byProvider.has(route.provider)) byProvider.set(route.provider, [])
       byProvider.get(route.provider).push(route)
     }
+    const groups = [...byProvider.values()]
     const plan = []
-    for (const [provider, list] of byProvider) {
-      plan.push(list[0])
-      const second = list.find((route) => route.model !== list[0].model)
-      if (second) plan.push(second)
+    const depth = Math.max(0, ...groups.map((list) => list.length))
+    for (let round = 0; round < depth; round += 1) {
+      for (const list of groups) {
+        if (list[round]) plan.push(list[round])
+      }
     }
     const agent = this.ctx.get?.('agentDefaultModel')
     const current = agent?.currentSelection?.() ?? null
@@ -2082,6 +2091,9 @@ class QuotaNexusRuntime {
 
   /** 应用一次轮转：调用 agentDefaultModel.saveSelection 切换 DSH 默认模型。 */
   async applyRotationStep() {
+    if (this.scheduler.leases.size > 0) {
+      return { ok: false, code: 'quota_nexus_busy', skipped: true, message: '有在途请求，本轮跳过切换' }
+    }
     const agentDefaultModel = this.ctx.get?.('agentDefaultModel')
     if (!agentDefaultModel || typeof agentDefaultModel.saveSelection !== 'function') {
       return { ok: false, code: 'quota_nexus_no_default_model', message: 'agentDefaultModel 不可用，无法切换默认模型' }
@@ -2092,7 +2104,10 @@ class QuotaNexusRuntime {
     const index = pool.findIndex((route) => route.provider === current?.provider && route.model === current?.model)
     const next = pool[(index + 1) % pool.length]
     try {
-      await agentDefaultModel.saveSelection({ provider: next.provider, model: next.model })
+      const wanted = current?.reasoningEffort ?? null
+      const targetCaps = next.capabilities ?? { efforts: [], defaultEffort: null }
+      const effort = wanted && Array.isArray(targetCaps.efforts) && targetCaps.efforts.includes(wanted) ? wanted : targetCaps.defaultEffort
+      await agentDefaultModel.saveSelection({ provider: next.provider, model: next.model, ...(effort ? { reasoningEffort: effort } : {}) })
       this.modelRotation.lastAppliedAt = new Date().toISOString()
       this.modelRotation.lastError = null
       this.publish('rotation', { provider: next.provider, model: next.model })
@@ -3307,14 +3322,15 @@ class HttpSurface {
         await this.callbackHandler()(req, res)
         return
       }
-      const exact = table.find((entry) => entry.path === path)
-      if (exact && exact.method === method) {
-        await exact.handler(req, res)
+      // 同一路径可以注册多个方法（例如 GET/POST /api/rotation）：必须路径+方法同时匹配。
+      const match = table.find((entry) => entry.path === path && entry.method === method)
+      if (match) {
+        await match.handler(req, res)
         return
       }
-      const fallback = table.find((entry) => entry.path === path)
-      if (fallback) {
-        writeJson(res, 405, { ok: false, code: 'quota_nexus_method_not_allowed', message: `请使用 ${fallback.method}` })
+      const other = table.find((entry) => entry.path === path)
+      if (other) {
+        writeJson(res, 405, { ok: false, code: 'quota_nexus_method_not_allowed', message: `请使用 ${other.method}` })
         return
       }
       writeJson(res, 404, { ok: false, code: 'quota_nexus_not_found', message: `未知路由 ${path}` })
