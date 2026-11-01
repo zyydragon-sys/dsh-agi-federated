@@ -59,6 +59,7 @@ const GROUPS = {
       'scripts/publish.mjs',
       'scripts/monitor.mjs',
       'scripts/watch.mjs',
+      '.github/workflows/ci.yml',
     ],
   },
   // A nested bundle: the whole directory is walked.
