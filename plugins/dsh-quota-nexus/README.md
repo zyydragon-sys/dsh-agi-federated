@@ -1,6 +1,6 @@
 # dsh-quota-nexus
 
-**Version:** 1.16.0 · **Bundle:** `plugins/dsh-quota-nexus` in
+**Version:** 1.17.0 · **Bundle:** `plugins/dsh-quota-nexus` in
 [`zyydragon-sys/dsh-agi-federated`](https://github.com/zyydragon-sys/dsh-agi-federated)
 
 多模型供应商额度池 + O(1) 租约调度 + 熔断恢复 + 0s 额度遥测。作为 DeepSeek Harness 的
@@ -76,6 +76,14 @@ dsh --profile $env:DSH_PROFILE --dump-config
 `custom-anthropic` 用于任意 Anthropic Messages 协议端点（官方直连或中转站）：**base_url 必填**，填到 `/v1` 为止——官方为 `https://api.anthropic.com/v1`，中转站填其对应的 `/v1` 根地址。设置页选中该供应商时会显示协议提示。
 
 校验连通性时，`/models` 返回 404/405 会被判定为“可达但无探测接口”而不是失败，避免中转端点被误判；401/403 仍然判定为凭据拒绝。
+
+## 币种与汇率
+
+- 官方价目表以 **USD** 计价（来源：`https://api-docs.deepseek.com/quick_start/pricing`），
+  插件内部始终以 USD 作为唯一真值来源。
+- 界面按 **人民币（CNY）** 展示，默认汇率 `1 USD = 7.10 CNY`，可在
+  `POST /api/currency` 修改（`code`、`usdToCnyRate`），并持久化到 `state.json`。
+- 汇率是手动维护值，界面会显示当前汇率；请按自己的实际结汇汇率调整，避免用错汇率误判成本。
 
 ## 风险披露（非官方通道）
 
