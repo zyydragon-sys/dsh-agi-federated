@@ -344,6 +344,9 @@ const VENDOR_CATALOG = Object.freeze({
 /** 价目表折算用的参考汇率：官方 DeepSeek 用 USD，MiniMax 用 CNY，内部统一成 USD。 */
 const CNY_PER_USD_REF = 7.1
 
+/** 与 client.js 的 BUILD_TAG 同步的构建号；概览里下发，供客户端自愈判断。 */
+export const PLUGIN_BUILD = 'v1.22.2'
+
 const PRICE_SNAPSHOT = Object.freeze({
   source: 'https://api-docs.deepseek.com/quick_start/pricing',
   capturedAt: '2026-11-01',
@@ -3314,6 +3317,7 @@ class QuotaNexusRuntime {
         },
         strategy: this.config.strategy,
         rotation: rotationView,
+        build: PLUGIN_BUILD,
         usageCapture: { ...this.usageCapture, sessionImported: this.sessionUsageImported },
         counts,
         ledger: this.ledger.snapshot(),
