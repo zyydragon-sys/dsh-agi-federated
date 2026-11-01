@@ -1,6 +1,6 @@
 # dsh-quota-nexus
 
-**Version:** 1.18.0 · **Bundle:** `plugins/dsh-quota-nexus` in
+**Version:** 1.19.2 · **Bundle:** `plugins/dsh-quota-nexus` in
 [`zyydragon-sys/dsh-agi-federated`](https://github.com/zyydragon-sys/dsh-agi-federated)
 
 多模型供应商额度池 + O(1) 租约调度 + 熔断恢复 + 0s 额度遥测。作为 DeepSeek Harness 的
@@ -76,6 +76,17 @@ dsh --profile $env:DSH_PROFILE --dump-config
 `custom-anthropic` 用于任意 Anthropic Messages 协议端点（官方直连或中转站）：**base_url 必填**，填到 `/v1` 为止——官方为 `https://api.anthropic.com/v1`，中转站填其对应的 `/v1` 根地址。设置页选中该供应商时会显示协议提示。
 
 校验连通性时，`/models` 返回 404/405 会被判定为“可达但无探测接口”而不是失败，避免中转端点被误判；401/403 仍然判定为凭据拒绝。
+
+## 维护性（版本约束）
+
+- `engines.dsh`: `>=0.2.1-rc.0 <1.0.0`；`engines.node`: `>=20.0.0`。
+  当前运行的 DSH 为 `0.2.1-rc.5`，满足该区间；若将来 DSH 主版本跨到 1.x，
+  安装器会按此字段判断兼容性，而不是静默装上再崩。
+- `peerDependencies`: `@deepseek-ai/cordis` / `@deepseek-ai/schemastery`，
+  两者都标了 `optional: true`——本插件通过 `ctx` 取服务、并在多个候选路径里
+  解析 schemastery，缺少时降级而不是安装失败。
+- 版本号语义：主版本用于可能影响既有配置的改动，次版本用于新增能力，
+  修订号用于修复；每次发布同步 `CHANGELOG.md` 与仓库副本。
 
 ## 币种与汇率
 
