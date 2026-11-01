@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.1 — 2026-11-01
+
+- Fix startup activation: declare `tools` as a required injection and acquire
+  `webServer` through `ctx.inject`, so the Host plugin registers tools and the
+  status route even when those services appear after plugin apply.
+
 ## 1.5.0 — 2026-11-01
 
 - Memory: add a local-first, project-scoped memory bank shared by sessions in
