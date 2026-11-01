@@ -1,4 +1,11 @@
-﻿# Changelog
+# Changelog
+
+## 1.1.0 — 2026-11-01
+
+- UI: add the left-sidebar AGI panel (`sidebar.panellist` + `main`) with live
+  installation, memory, evidence, audit, federation, and market status.
+- UI: add localized plugin metadata (`locale/en.json`, `locale/zh.json`) and an
+  original `icon.svg` for the Plugin Manager inventory.
 
 ## 1.0.1 — 2026-11-01
 
@@ -16,3 +23,4 @@
 - Initial federated AGI layer: bounded Hot Memory, Clue Store + BM25,
   deterministic surface checkpoint compaction, staged skills, evidence gate,
   usage/balance monitor, zero-trust audit, and advisory JEPA/CUV/mp-rcp seams.
+
