@@ -335,6 +335,73 @@ const VENDOR_CATALOG = Object.freeze({
   },
 })
 
+/**
+ * 官方价格快照（USD / 1M tokens）。
+ * 来源：https://api-docs.deepseek.com/quick_start/pricing （2026-11-01 抓取）。
+ * 高峰：UTC 周一至周五 01:00-04:00 与 06:00-10:00（= 北京时间 09:00-12:00、14:00-18:00），
+ * 不含中国法定节假日；其余为空闲时段，空闲价为高峰价的一半。
+ */
+const PRICE_SNAPSHOT = Object.freeze({
+  source: 'https://api-docs.deepseek.com/quick_start/pricing',
+  capturedAt: '2026-11-01',
+  unit: 'USD per 1M tokens',
+  vendors: {
+    deepseek: {
+      'deepseek-flash': {
+        peak: { cacheHit: 0.006, input: 0.3, output: 1.2 },
+        offpeak: { cacheHit: 0.003, input: 0.15, output: 0.6 },
+      },
+      'deepseek-v4-pro': {
+        peak: { cacheHit: 0.044, input: 1.32, output: 3.96 },
+        offpeak: { cacheHit: 0.022, input: 0.66, output: 1.98 },
+      },
+    },
+  },
+})
+
+/** 高峰窗口（UTC 小时，左闭右开）。 */
+const PEAK_WINDOWS_UTC = [
+  [1, 4],
+  [6, 10],
+]
+
+/** 给定时刻的计费时段：peak / offpeak（按 UTC 星期与小时，节假日整天空闲）。 */
+const billingPhaseAt = (ms, holidays = []) => {
+  const date = new Date(ms)
+  const weekday = date.getUTCDay()
+  const hour = date.getUTCHours() + date.getUTCMinutes() / 60
+  const dateKey = date.toISOString().slice(0, 10)
+  const isWeekday = weekday >= 1 && weekday <= 5
+  const isHoliday = holidays.includes(dateKey)
+  const inWindow = PEAK_WINDOWS_UTC.some(([from, to]) => hour >= from && hour < to)
+  return isWeekday && !isHoliday && inWindow ? 'peak' : 'offpeak'
+}
+
+/** 下一次时段切换的时刻（15 分钟粒度搜索，最长 5 天）。 */
+const nextBillingChangeAt = (ms, holidays = []) => {
+  const current = billingPhaseAt(ms, holidays)
+  const step = 15 * 60_000
+  const limit = ms + 5 * 864e5
+  for (let cursor = Math.floor(ms / step) * step + step; cursor <= limit; cursor += step) {
+    if (billingPhaseAt(cursor, holidays) !== current) return cursor
+  }
+  return null
+}
+
+/** 用价格快照估算一次调用费用（USD）。无对应价格时返回 null。 */
+const estimateCost = (vendorId, model, usage, atMs, holidays) => {
+  const table = PRICE_SNAPSHOT.vendors[vendorId]
+  if (!table || !table[model]) return null
+  const price = table[model][billingPhaseAt(atMs, holidays)]
+  if (!price) return null
+  const perMillion = (tokens) => (Number(tokens) || 0) / 1_000_000
+  return (
+    perMillion(usage.input) * price.input +
+    perMillion(usage.cached) * price.cacheHit +
+    perMillion(usage.output) * price.output
+  )
+}
+
 const vendorOf = (provider) => VENDOR_CATALOG[provider?.vendorId] ?? VENDOR_CATALOG.custom
 
 /** 支持的协议族；provider 上可显式覆盖（同一家厂商的 OpenAI 端点与 Anthropic 端点并存）。 */
@@ -1673,6 +1740,8 @@ class QuotaNexusRuntime {
       modelPolicy: record.modelPolicy ?? null,
       autoModels: autoModelPreview(record),
       plan: planViewOf(record, rt),
+      pricing: PRICE_SNAPSHOT.vendors[record.vendorId] ?? null,
+      billing: this.billingOf(record),
       usage: rt?.usage
         ? {
             requests: rt.usage.requests,
@@ -1933,6 +2002,23 @@ class QuotaNexusRuntime {
     return { ok: false, account: maskAccount(rt.record), ...report }
   }
 
+  /** 计费时段视图：仅对有官方价格快照的厂商（DeepSeek）给出高峰/空闲与切换倒计时。 */
+  billingOf(record) {
+    if (!PRICE_SNAPSHOT.vendors[record.vendorId]) return null
+    const holidays = Array.isArray(this.config.billingHolidays) ? this.config.billingHolidays : []
+    const now = wallNow()
+    const phase = billingPhaseAt(now, holidays)
+    const next = nextBillingChangeAt(now, holidays)
+    return {
+      phase,
+      timezone: 'UTC',
+      note: 'peak = UTC Mon-Fri 01:00-04:00 & 06:00-10:00 (= Beijing 09:00-12:00 & 14:00-18:00), CN holidays excluded',
+      nextChangeAt: next ? new Date(next).toISOString() : null,
+      msToChange: next ? Math.max(0, next - now) : 0,
+      holidays,
+    }
+  }
+
   /**
    * 官方余额接口（目前 DeepSeek 已确认：GET /user/balance）。
    * 失败只记录 warning，不影响健康判定——余额接口挂掉不代表推理不可用。
@@ -2054,7 +2140,16 @@ class QuotaNexusRuntime {
 
     // 本地周期统计：官方不给额度头时，至少让「用了多少」有据可查。
     rt.usage.requests += 1
-    rt.events.push({ t: wallNow(), model: entry.token?.model ?? null, tokens: Number(outcome.usage?.total_tokens ?? 0) || 0 })
+    const usageParts = outcome.usage && typeof outcome.usage === 'object' ? outcome.usage : {}
+    rt.events.push({
+      t: wallNow(),
+      model: entry.token?.model ?? null,
+      tokens: Number(usageParts.total_tokens ?? 0) || 0,
+      input: Number(usageParts.input_tokens ?? usageParts.prompt_tokens ?? 0) || 0,
+      output: Number(usageParts.output_tokens ?? usageParts.completion_tokens ?? 0) || 0,
+      cached: Number(usageParts.prompt_cache_hit_tokens ?? usageParts.cached_tokens ?? 0) || 0,
+      session: entry.token?.sessionKey ?? null,
+    })
     const cutoff = wallNow() - 30 * 864e5
     while (rt.events.length > 5000) rt.events.shift()
     while (rt.events.length > 0 && rt.events[0].t < cutoff) rt.events.shift()
@@ -2375,6 +2470,9 @@ class QuotaNexusRuntime {
       }))
       const seriesMap = new Map()
       const days = new Map()
+      const sessionStats = new Map()
+      const modelCosts = new Map()
+      let cost = 0
       let tokens = 0
       for (const event of events) {
         const eventTokens = Number(event.tokens) || 0
@@ -2394,6 +2492,20 @@ class QuotaNexusRuntime {
         seriesMap.set(key, series)
         const dayKey = new Date(event.t).toISOString().slice(0, 10)
         days.set(dayKey, (days.get(dayKey) || 0) + eventTokens)
+        const holidays = Array.isArray(this.config.billingHolidays) ? this.config.billingHolidays : []
+        const eventCost = estimateCost(record.vendorId, key, event, event.t, holidays)
+        if (eventCost !== null) {
+          cost += eventCost
+          const costEntry = modelCosts.get(key) || { model: key, costUsd: 0 }
+          costEntry.costUsd += eventCost
+          modelCosts.set(key, costEntry)
+        }
+        const sessionKey = event.session || '(unattributed)'
+        const sessionEntry = sessionStats.get(sessionKey) || { session: sessionKey, requests: 0, tokens: 0, costUsd: 0 }
+        sessionEntry.requests += 1
+        sessionEntry.tokens += eventTokens
+        if (eventCost !== null) sessionEntry.costUsd += eventCost
+        sessionStats.set(sessionKey, sessionEntry)
       }
       const dayValues = [...days.values()]
       providers.push({
@@ -2407,11 +2519,19 @@ class QuotaNexusRuntime {
           activeDays: days.size,
           peakDayTokens: dayValues.length ? Math.max(...dayValues) : 0,
           peakDayText: scale(dayValues.length ? Math.max(...dayValues) : 0),
+          costUsd: Math.round(cost * 1_000_000) / 1_000_000,
+          costText: cost > 0 ? cost.toFixed(4) : '0',
+          costCurrency: 'USD',
           avgTokens: bucketCount ? Math.round(tokens / bucketCount) : 0,
           avgTokensText: scale(bucketCount ? Math.round(tokens / bucketCount) : 0),
         },
         models: [...models.values()].sort((a, b) => b.tokens - a.tokens),
         series: [...seriesMap.values()].sort((a, b) => b.tokens - a.tokens).slice(0, 6),
+        costByModel: [...modelCosts.values()].sort((a, b) => b.costUsd - a.costUsd),
+        sessions: [...sessionStats.values()]
+          .map((entry) => ({ ...entry, costUsd: Math.round(entry.costUsd * 1_000_000) / 1_000_000 }))
+          .sort((a, b) => b.tokens - a.tokens)
+          .slice(0, 20),
         peakBucketTokens: Math.max(1, ...buckets.map((bucket) => bucket.tokens)),
         buckets,
         plan: planViewOf(record, rt),
@@ -2424,6 +2544,7 @@ class QuotaNexusRuntime {
       from: new Date(from).toISOString(),
       to: new Date(now).toISOString(),
       bucketMs,
+      pricing: { source: PRICE_SNAPSHOT.source, capturedAt: PRICE_SNAPSHOT.capturedAt, unit: PRICE_SNAPSHOT.unit },
       providers,
     }
   }
