@@ -14,7 +14,7 @@ This repository ships more than one DSH bundle. The root is `dsh-agi-federated`;
 | Path | Bundle | What it is |
 |---|---|---|
 | `/` | `dsh-agi-federated` | The federated AGI layer described below. |
-| [`plugins/dsh-quota-nexus`](plugins/dsh-quota-nexus) | `dsh-quota-nexus` **v1.15.0** | Multi-provider quota pool: provider registry UI (OpenAI-compatible, Anthropic Messages incl. custom `base_url` relays, Gemini), O(1) lease scheduling with an 8-account budget, split 429/5xx breakers with credential fuse, write-behind usage ledger, and 0s SSE quota telemetry with 80/90/95% alerts. Adds a left-sidebar panel entry beside Settings. |
+| [`plugins/dsh-quota-nexus`](plugins/dsh-quota-nexus) | `dsh-quota-nexus` **v1.16.0** | Multi-provider quota pool: provider registry UI (OpenAI-compatible, Anthropic Messages incl. custom `base_url` relays, Gemini), O(1) lease scheduling with an 8-account budget, split 429/5xx breakers with credential fuse, write-behind usage ledger, and 0s SSE quota telemetry with 80/90/95% alerts. Adds a left-sidebar panel entry beside Settings. |
 
 Publishing local edits to GitHub (no git needed on this machine):
 
