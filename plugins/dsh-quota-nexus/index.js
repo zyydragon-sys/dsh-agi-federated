@@ -13,7 +13,7 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto'
-import { appendFile, chmod, mkdir, open, readFile, readdir, rename, rm, stat } from 'node:fs/promises'
+import { appendFile, chmod, mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
@@ -345,7 +345,7 @@ const VENDOR_CATALOG = Object.freeze({
 const CNY_PER_USD_REF = 7.1
 
 /** 与 client.js 的 BUILD_TAG 同步的构建号；概览里下发，供客户端自愈判断。 */
-export const PLUGIN_BUILD = 'v1.22.4'
+export const PLUGIN_BUILD = 'v1.23.1'
 
 const PRICE_SNAPSHOT = Object.freeze({
   source: 'https://api-docs.deepseek.com/quick_start/pricing',
@@ -1405,6 +1405,8 @@ class QuotaNexusRuntime {
     this.currency = { code: 'CNY', usdToCnyRate: 7.1, updatedAt: new Date().toISOString(), source: 'manual' }
     /** 真实用量采集统计：calls=经过 llm 的请求数，captured=成功写入事件环的次数。 */
     this.usageCapture = { calls: 0, captured: 0, lastError: null }
+    /** profile 清单自愈状态（外部 PowerShell 改写防护）。 */
+    this.profileGuard = { checkedAt: null, problems: [] }
     /** 被打了用量采集补丁的目标（实例/原型），停用时逐个还原。 */
     this.usageCaptureTargets = []
     this.usageCaptureOriginals = []
@@ -2077,6 +2079,86 @@ class QuotaNexusRuntime {
       }
     }
     return routes
+  }
+
+  /** 默认 profile 目录：优先 DSH_PROFILE_DIR，其次 DSH_HOME/profiles/desktop。 */
+  profileDir() {
+    if (process.env.DSH_PROFILE_DIR) return process.env.DSH_PROFILE_DIR
+    const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
+    return join(home, 'profiles', 'desktop')
+  }
+
+  /**
+   * profile 自愈：校验 → 合法则刷新金样；非法则留证并用金样覆盖。
+   * 只碰 profiles/<profile>/package.json 与其 .golden，绝不猜任何 bundle 列表。
+   */
+  async profileGuardCheck({ fix = false } = {}) {
+    const dir = this.profileDir()
+    const manifestPath = join(dir, 'package.json')
+    const goldenPath = `${manifestPath}.golden`
+    let bytes
+    try {
+      bytes = await readFile(manifestPath)
+    } catch (error) {
+      this.warn('profile_guard_missing', `读不到 profile 清单：${error?.message ?? error}`)
+      return { ok: false, code: 'quota_nexus_profile_missing', problems: ['读不到 profile 清单'] }
+    }
+    const verdict = validateProfileManifest(bytes)
+    const now = new Date().toISOString()
+    this.profileGuard = { ...(this.profileGuard ?? {}), checkedAt: now, problems: verdict.problems, path: manifestPath }
+    if (verdict.ok) {
+      // 与金样比较 bundle 列表：被“缩短”是真实事故的形态（3 条 vs 24 条），
+      // 但不自动回滚——卸载插件也会合法地减少条目，这里只记录并告警。
+      try {
+        const goldenBytes = await readFile(goldenPath)
+        const goldenVerdict = validateProfileManifest(goldenBytes)
+        if (goldenVerdict.ok) {
+          const before = new Set(goldenVerdict.manifest?.dsh?.profile?.bundles ?? [])
+          const now = new Set(verdict.manifest?.dsh?.profile?.bundles ?? [])
+          const dropped = [...before].filter((name) => !now.has(name))
+          if (dropped.length) {
+            this.profileGuard = { ...(this.profileGuard ?? {}), droppedBundles: dropped }
+            this.warn('profile_guard_bundles_dropped', `profile bundles 比上次少了 ${dropped.length} 项：${dropped.join(', ')}（如非主动卸载，请检查是谁改的）`)
+          } else if (this.profileGuard?.droppedBundles) {
+            this.profileGuard = { ...this.profileGuard, droppedBundles: [] }
+          }
+        }
+      } catch {
+        /* 首次运行没有金样，跳过比较 */
+      }
+      try {
+        await writeFile(goldenPath, bytes)
+      } catch (error) {
+        this.warn('profile_guard_golden_failed', String(error?.message ?? error))
+      }
+      return { ok: true, repaired: false, checkedAt: now, problems: [] }
+    }
+    if (!fix) return { ok: false, repaired: false, checkedAt: now, problems: verdict.problems }
+    let golden
+    try {
+      golden = await readFile(goldenPath)
+    } catch {
+      this.warn('profile_guard_no_golden', `profile 清单不合法且没有金样：${verdict.problems.join('; ')}`)
+      return { ok: false, repaired: false, checkedAt: now, problems: [...verdict.problems, '没有金样可恢复'] }
+    }
+    const goldenVerdict = validateProfileManifest(golden)
+    if (!goldenVerdict.ok) {
+      this.warn('profile_guard_golden_invalid', `金样本身不合法，拒绝覆盖：${goldenVerdict.problems.join('; ')}`)
+      return { ok: false, repaired: false, checkedAt: now, problems: [...verdict.problems, '金样不合法'] }
+    }
+    const stamp = now.replace(/[:.]/g, '-')
+    const corruptPath = `${manifestPath}.corrupt-${stamp}`
+    try {
+      await rename(manifestPath, corruptPath)
+      await writeFile(manifestPath, golden)
+      this.profileGuard = { ...this.profileGuard, repairedAt: now, lastCorruptPath: corruptPath }
+      this.warn('profile_guard_repaired', `profile 清单被改坏（${verdict.problems.join('; ')}），已用金样恢复；损坏版本：${corruptPath}`)
+      this.publish('profile-guard', { repaired: true, problems: verdict.problems })
+      return { ok: true, repaired: true, checkedAt: now, problems: verdict.problems, corruptPath }
+    } catch (error) {
+      this.warn('profile_guard_repair_failed', String(error?.message ?? error))
+      return { ok: false, repaired: false, checkedAt: now, problems: [...verdict.problems, String(error?.message ?? error)] }
+    }
   }
 
   /**
@@ -3333,6 +3415,7 @@ class QuotaNexusRuntime {
         rotation: rotationView,
         build: PLUGIN_BUILD,
         usageCapture: { ...this.usageCapture, sessionImported: this.sessionUsageImported },
+        profileGuard: { ...(this.profileGuard ?? {}) },
         counts,
         ledger: this.ledger.snapshot(),
         alerts: this.inbox.slice(0, 20),
@@ -3417,6 +3500,16 @@ class QuotaNexusRuntime {
     syncUsage()
     every(this.config.usageSyncMs, syncUsage)
     every(30_000, () => this.scheduler.refreshSets())
+    // profile 自愈：外部 PowerShell 改写会把 profile 清单写成 BOM+乱码、丢掉 bundle 条目，
+    // 结果整个插件在下次启动时不被组合（工具/REST/界面全部消失）。这里在 Host 进程内
+    // 每 profileGuardIntervalMs 校验一次：合法就刷新金样，非法就用金样修回去并留证。
+    if (this.config.profileGuard !== false) {
+      const runGuard = () => {
+        void this.profileGuardCheck({ fix: true }).catch((error) => this.warn('profile_guard_failed', String(error?.message ?? error)))
+      }
+      runGuard()
+      every(this.config.profileGuardIntervalMs ?? 30_000, runGuard)
+    }
     if (this.config.discoveryAutoScan) {
       const timer = setTimeout(() => {
         void this.scanLocal().catch((error) => this.warn('discovery_failed', `${error?.message ?? error}`))
@@ -3586,6 +3679,16 @@ class HttpSurface {
     add('GET', '/api/llm-diagnostics', async (req, res) => {
       if (!this.guard(req, res)) return
       writeJson(res, 200, { ok: true, diagnostics: await this.runtime.llmDiagnostics() })
+    })
+
+    add('GET', '/api/profile-guard', async (req, res) => {
+      if (!this.guard(req, res)) return
+      writeJson(res, 200, { ok: true, guard: { ...(this.runtime.profileGuard ?? {}) } })
+    })
+
+    add('POST', '/api/profile-guard/check', async (req, res) => {
+      if (!this.guard(req, res)) return
+      writeJson(res, 200, { ok: true, result: await this.runtime.profileGuardCheck({ fix: true }) })
     })
 
     add('GET', '/api/pricing', async (req, res) => {
@@ -3979,6 +4082,40 @@ export const mergeUsage = (current, next) => {
 /** 供自检使用的能力相容判断（与运行时同一实现，避免测试复制逻辑）。 */
 export const compatible = (current, candidate, minContext, requireVision) =>
   QuotaNexusRuntime.compatible(current, candidate, minContext, requireVision)
+
+/**
+ * 校验 profile 清单字节。返回 { ok, problems[] }，从不抛错。
+ * 针对真实事故：外部 PowerShell 写入的 UTF-8 BOM、中文路径乱码、丢失 bundle 条目。
+ */
+export const validateProfileManifest = (bytes, options = {}) => {
+  const required = options.required ?? ['dsh-quota-nexus', 'dsh-agi-federated']
+  const problems = []
+  if (!bytes || bytes.length === 0) return { ok: false, problems: ['文件为空'] }
+  if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) problems.push('带 UTF-8 BOM（PowerShell 写入特征）')
+  let text
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  } catch {
+    return { ok: false, problems: [...problems, '不是合法 UTF-8'] }
+  }
+  let manifest = null
+  try {
+    manifest = JSON.parse(text)
+  } catch (error) {
+    return { ok: false, problems: [...problems, `JSON 解析失败：${error?.message ?? error}`] }
+  }
+  if (/\uFFFD|宸ヤ綔鍖|鈥|馃/.test(text)) problems.push('包含乱码字符（中文路径被错误转码）')
+  const deps = manifest?.dependencies ?? {}
+  for (const [name, spec] of Object.entries(deps)) {
+    if (typeof spec !== 'string' || !spec.startsWith('link:')) continue
+    const target = spec.slice(5)
+    if (/[?？]/.test(target)) problems.push(`依赖 ${name} 的 link 路径不可用：${target}`)
+  }
+  const bundles = manifest?.dsh?.profile?.bundles
+  if (!Array.isArray(bundles) || bundles.length === 0) problems.push('缺少 dsh.profile.bundles 列表')
+  else for (const name of required) if (!bundles.includes(name)) problems.push(`bundles 缺少 ${name}（插件将不加载）`)
+  return { ok: problems.length === 0, problems, manifest }
+}
 
 export function apply(ctx, rawConfig) {
   const config = normalizeConfig(rawConfig)
