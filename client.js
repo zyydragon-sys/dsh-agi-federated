@@ -97,6 +97,7 @@ window.__ModuleLoader__.load({
       const bank = (d.memory?.bank || []).filter((item) => matches(item.title) || matches(item.summary) || matches((item.tags || []).join(' ')));
       const evidence = (d.evidence?.recent || []).filter((record) => matches(record.tool) || matches(record.summary));
       const skills = (d.skills?.list || []).filter((skill) => matches(skill.name) || matches((skill.tags || []).join(' ')));
+      const projectSkills = (data?.projectSkills || []).filter((skill) => matches(skill.name) || matches(skill.description) || matches(skill.whenToUse));
       const titles = { runtime: '运行状态', memory: '记忆与证据', skills: '技能与审计', federation: '联邦 seams', health: '信任自检' };
       const searchable = kind === 'memory' || kind === 'skills';
       let body = null;
@@ -143,7 +144,19 @@ window.__ModuleLoader__.load({
         );
       } else if (kind === 'skills') {
         body = h(React.Fragment, null,
-          h('h4', { style: { margin: '0 0 8px', fontSize: 13 } }, 'Skills · ' + skills.length),
+          h('h4', { style: { margin: '0 0 8px', fontSize: 13 } }, '永久技能 · ' + projectSkills.length),
+          ...(projectSkills.length ? projectSkills.map((skill) => h('div', {
+            key: skill.name,
+            style: { padding: '8px 0', borderBottom: '1px solid var(--dsw-alias-border-l1)', fontSize: 12 },
+          },
+            h('div', { style: { display: 'flex', justifyContent: 'space-between', gap: 12 } },
+              h('span', { style: { fontWeight: 600 } }, skill.name),
+              h('span', { style: { color: 'var(--dsw-alias-state-success-primary)', fontSize: 11 } }, '永久 · 可升级'),
+            ),
+            h('div', { style: { color: 'var(--dsw-alias-label-secondary)', marginTop: 3 } }, skill.description || '—'),
+            h('div', { style: { color: 'var(--dsw-alias-label-secondary)', marginTop: 3 } }, (skill.origin === 'darwin' ? 'darwin 演进' : '人工维护') + ' · ' + (skill.bytes || 0) + ' bytes'),
+          )) : h('p', { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 13 } }, '暂无项目级永久技能')),
+          h('h4', { style: { margin: '16px 0 8px', fontSize: 13 } }, '插件 Skills · ' + skills.length),
           ...(skills.length ? skills.map((skill) => h('div', {
             key: skill.id,
             style: { padding: '8px 0', borderBottom: '1px solid var(--dsw-alias-border-l1)', fontSize: 12 },
@@ -220,10 +233,16 @@ window.__ModuleLoader__.load({
     function Panel() {
       const { data, error, loading } = useStatus();
       const [detail, setDetail] = React.useState(null);
+      React.useEffect(() => {
+        window.__AGI_PANEL_MOUNTED__ = true;
+        window.__AGI_PANEL_MOUNTED_AT__ = Date.now();
+        return () => { window.__AGI_PANEL_MOUNTED__ = false; };
+      }, []);
       const ok = Boolean(data && data.ok);
       const degraded = Boolean(data && data.degraded);
       const evidence = data && data.evidence ? data.evidence : {};
       const skills = data && data.skills ? data.skills : {};
+      const projectSkills = data && Array.isArray(data.projectSkills) ? data.projectSkills : [];
       const audit = data && data.audit ? data.audit : {};
       const usage = data && data.session ? data.session : {};
       const model = data && data.model ? data.model : {};
@@ -288,6 +307,15 @@ window.__ModuleLoader__.load({
             h(Row, { label: 'Audit', value: 'seq ' + (audit.seq || 0) + (audit.broken ? ' · BROKEN' : ' · 完整') }),
             h(Row, { label: 'Security', value: '证据闸门 · 零信任' }),
           ),
+          h(Card, { title: '永久技能', onClick: () => openDetail('skills') },
+            h(Row, { label: '已安装', value: projectSkills.length + ' 个' }),
+            ...projectSkills.slice(0, 3).map((skill) => h(Row, {
+              key: skill.name,
+              label: skill.name,
+              value: (skill.origin === 'darwin' ? 'darwin' : 'manual') + ' · 永久',
+            })),
+            h(Row, { label: '学习/升级', value: '受控演进器 · 可回滚' }),
+          ),
           h(Card, { title: '联邦 seams', onClick: () => openDetail('federation') },
             ['jepa', 'cuv', 'mpRcp'].map((key) => h(Row, {
               key,
@@ -300,6 +328,22 @@ window.__ModuleLoader__.load({
             h(Row, { label: 'Audit chain', value: data?.health?.auditChain || '—' }),
             h(Row, { label: 'Evidence gate', value: data?.health?.evidenceGate || '—' }),
             h(Row, { label: 'Model tracked', value: data?.health?.modelTracked ? 'yes' : 'no' }),
+          ),
+        ),
+        h('div', {
+          style: { marginTop: 18, padding: 14, border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 12, background: 'var(--dsw-alias-bg-layer-1)' },
+          onClick: () => openDetail('skills'),
+        },
+          h('div', { style: { display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 8 } },
+            h('h3', { style: { margin: 0, fontSize: 13, color: 'var(--dsw-alias-label-secondary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em' } }, '已安装永久技能'),
+            h('span', { style: { color: 'var(--dsw-alias-state-success-primary)', fontSize: 12 } }, projectSkills.length + ' 个 · 可学习升级'),
+          ),
+          h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 8 } },
+            ...(projectSkills.length ? projectSkills.map((skill) => h('span', {
+              key: skill.name,
+              style: { border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 999, padding: '4px 9px', fontSize: 12, color: 'var(--dsw-alias-label-primary)', background: 'var(--dsw-alias-bg-layer-2)' },
+              title: skill.description || '',
+            }, skill.name + (skill.origin === 'darwin' ? ' · darwin' : ' · manual'))) : [h('span', { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 13 } }, '暂未发现项目级永久技能')]),
           ),
         ),
         h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 18, alignItems: 'center' } },
@@ -316,15 +360,67 @@ window.__ModuleLoader__.load({
       );
     }
 
+    function StaticFallbackPanel({ error }) {
+      return h('div', {
+        style: { padding: '28px clamp(18px, 4vw, 48px)', maxWidth: 880, margin: '0 auto', color: 'var(--dsw-alias-label-primary)' },
+      },
+        h('h1', { style: { margin: 0, fontSize: 22 } }, 'AGI Federated'),
+        h('p', { style: { marginTop: 12, color: 'var(--dsw-alias-label-secondary)', fontSize: 13 } }, 'AGI 面板未激活或渲染失败。Host 状态接口不受影响。'),
+        error ? h('pre', { style: { marginTop: 12, padding: 12, borderRadius: 8, background: 'var(--dsw-alias-bg-layer-2)', color: 'var(--dsw-alias-state-warn-primary)', whiteSpace: 'pre-wrap', fontSize: 12 } }, String(error)) : null,
+        h('button', {
+          onClick: () => window.location.reload(),
+          style: { marginTop: 16, border: '1px solid var(--dsw-alias-border-l1)', background: 'transparent', color: 'var(--dsw-alias-label-primary)', borderRadius: 7, padding: '6px 12px', cursor: 'pointer', fontSize: 13 },
+        }, '重新加载界面'),
+      );
+    }
+
+    class PanelBoundary extends React.Component {
+      constructor(props) {
+        super(props);
+        this.state = { error: null };
+      }
+      static getDerivedStateFromError(error) { return { error }; }
+      componentDidCatch(error) { window.__AGI_PANEL_ERROR__ = String(error); }
+      render() {
+        if (this.state.error) return h(StaticFallbackPanel, { error: this.state.error });
+        return this.props.children;
+      }
+    }
+
     return {
       inject: ['slots'],
       apply(ctx) {
-        ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
-          name: 'sidebar.panellist', id: 'agi-federated', order: 20, label: 'AGI',
-        }, Icon));
-        ctx.slots.inject('main', () => ctx.slots.register({
-          name: 'main', key: 'agi-federated',
-        }, Panel));
+        let sidebarDispose = null;
+        let mainDispose = null;
+        let disposed = false;
+        let retryTimer = null;
+
+        function registerAll() {
+          if (disposed) return;
+          try { sidebarDispose?.(); } catch {}
+          try { mainDispose?.(); } catch {}
+          sidebarDispose = ctx.slots.register({
+            name: 'sidebar.panellist', id: 'agi-federated', order: 20, label: 'AGI',
+          }, Icon);
+          mainDispose = ctx.slots.register({
+            name: 'main', key: 'agi-federated',
+          }, PanelBoundary);
+        }
+
+        registerAll();
+        retryTimer = setTimeout(() => {
+          if (disposed || window.__AGI_PANEL_MOUNTED__) return;
+          registerAll();
+        }, 900);
+
+        ctx.effect(() => () => {
+          disposed = true;
+          if (retryTimer) clearTimeout(retryTimer);
+          try { sidebarDispose?.(); } catch {}
+          try { mainDispose?.(); } catch {}
+          sidebarDispose = null;
+          mainDispose = null;
+        });
       },
     };
   },
