@@ -1,6 +1,6 @@
 /**
  * dsh-quota-nexus — Client half (Web)。
- * build: 1.10.0 (usage-dashboard)
+ * build: 1.11.0 (model-trend)
  *
  * 在“设置 → Quota Nexus”里渲染卡片列表式供应商管理：
  *   每行 = 提供商名称 + 状态点（已连接/离线/异常）+ 右侧“编辑”“删除”；
@@ -132,6 +132,8 @@ window.__ModuleLoader__.load({
         'kpi.activeDaysHint': '本周期有调用的天数',
         'calendar': '每周 Token 热力',
         'calendarHint': '按 ISO 周聚合（近 6 个月）',
+        'trend': '小时趋势',
+        'avg': '均值',
         'syncedAt': '同步于',
         'syncModels': '同步模型',
         'usageWindow': '本周期',
@@ -257,6 +259,8 @@ window.__ModuleLoader__.load({
         'kpi.activeDaysHint': 'days with at least one call',
         'calendar': 'Weekly token heat',
         'calendarHint': 'grouped by ISO week (last 6 months)',
+        'trend': 'Hourly trend',
+        'avg': 'avg',
         'syncedAt': 'synced',
         'syncModels': 'Sync models',
         'usageWindow': 'This window',
@@ -481,6 +485,9 @@ window.__ModuleLoader__.load({
       if (!response.ok && payload && payload.ok === undefined) payload.ok = false
       return payload
     }
+
+    /** 趋势图按模型分色（对齐控制台的红/黄/灰序列）。 */
+    const SERIES_COLORS = ['#f0453f', '#f5b942', '#5a5a5a', '#247bbf', '#6aa84f', '#9b59b6']
 
     const pct = (ratio) => (typeof ratio === 'number' ? Math.round(ratio * 1000) / 10 : null)
 
@@ -1092,18 +1099,49 @@ window.__ModuleLoader__.load({
               h('div', { style: style.meta }, `${t('total')} ${row.totals.requests} ${t('unitRequests')} · ${t('peak')} ${row.totals.peakDayText} · ${t('activeDays')} ${row.totals.activeDays}`),
               h(
                 'div',
-                { style: { display: 'flex', alignItems: 'flex-end', gap: 2, height: 42 } },
+                { style: { display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--dsw-alias-label-secondary)' } },
+                h('span', null, `${t('trend')} · ${row.totals.tokensText}`),
+                h('span', null, `${t('avg')} ${row.totals.avgTokensText}`),
+              ),
+              h(
+                'div',
+                { style: { display: 'flex', alignItems: 'flex-end', gap: 2, height: 64, marginTop: 2 } },
                 ...row.buckets.map((bucket, index) =>
-                  h('div', {
-                    key: index,
-                    title: `${new Date(bucket.at).toLocaleString()} · ${bucket.requests} req · ${bucket.tokens} tok`,
-                    style: {
-                      flex: '1 1 0',
-                      height: `${Math.max(3, Math.round((bucket.tokens / peak) * 100))}%`,
-                      background: bucket.tokens ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-bg-layer-2)',
-                      borderRadius: 2,
+                  h(
+                    'div',
+                    {
+                      key: index,
+                      title: `${new Date(bucket.at).toLocaleString()} · ${bucket.requests} req · ${bucket.tokens} tok`,
+                      style: { flex: '1 1 0', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', gap: 1 },
                     },
-                  }),
+                    ...(row.series ?? []).map((seriesItem, seriesIndex) => {
+                      const tokens = seriesItem.buckets?.[index] ?? 0
+                      if (!tokens) return null
+                      return h('div', {
+                        key: seriesItem.model || seriesIndex,
+                        style: {
+                          height: `${(tokens / peak) * 100}%`,
+                          background: SERIES_COLORS[seriesIndex % SERIES_COLORS.length],
+                          borderRadius: 1,
+                        },
+                      })
+                    }),
+                  ),
+                ),
+              ),
+              h(
+                'div',
+                { style: { display: 'flex', flexWrap: 'wrap', gap: 10, fontSize: 10.5, marginTop: 2 } },
+                ...(row.series ?? []).map((seriesItem, seriesIndex) =>
+                  h(
+                    'span',
+                    {
+                      key: seriesItem.model || seriesIndex,
+                      style: { display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--dsw-alias-label-secondary)' },
+                    },
+                    h('span', { style: { width: 8, height: 8, borderRadius: 2, background: SERIES_COLORS[seriesIndex % SERIES_COLORS.length] } }),
+                    `${seriesItem.model} ${fmtTokens(seriesItem.tokens)}`,
+                  ),
                 ),
               ),
               ...row.models.slice(0, 4).map((model) =>
