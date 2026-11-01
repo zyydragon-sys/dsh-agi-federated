@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.6.0 — 2026-11-01
+
+- Bundle version now tracks the packaged plugin releases again; this entry covers
+  `dsh-quota-nexus` 1.22.2 (top usage strip, sidebar-foot usage capsule, version
+  self-heal, real session usage import in CNY, capability-aware rotation with an
+  idle guard) plus the packaging metadata added along the way (`engines`, optional
+  peers, `npm test`).
+- CI: add `.github/workflows/ci.yml` running `node --check` on every host/client
+  entry, a manifest JSON check, and the plugin's 16-assertion self-test on Node 20 —
+  no `npm install`, so it stays green without third-party deps.
+- `files` now also ships `plugins/**` and `scripts/**`.
+
 ## 1.5.2 — 2026-11-01
 
 - Fix blank AGI panel on first render: guard the Project Memory count until
