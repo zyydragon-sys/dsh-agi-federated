@@ -110,6 +110,11 @@ export const DEFAULTS = Object.freeze({
   alertBalanceFloor: 0,
   /** 中国法定节假日（YYYY-MM-DD）；节日整天空闲价，用于高峰/空闲时段判定。 */
   billingHolidays: [],
+  /** 模型轮转：默认开启，按能力相容性在可用路由间切换。 */
+  rotationEnabled: true,
+  rotationIntervalMs: 300000,
+  /** 轮转允许的最小上下文（tokens）：低于此值的模型不参与轮转。 */
+  rotationMinContext: 131072,
   alertDedupeMs: 600_000,
   alertWebhookUrls: [],
   alertInbox: true,
@@ -217,6 +222,9 @@ export function normalizeConfig(input) {
     alertThresholds: ratioList(raw.alertThresholds, DEFAULTS.alertThresholds),
     alertBalanceFloor: num(raw.alertBalanceFloor, DEFAULTS.alertBalanceFloor, 0, 1_000_000),
     billingHolidays: strList(raw.billingHolidays, DEFAULTS.billingHolidays),
+    rotationEnabled: bool(raw.rotationEnabled, DEFAULTS.rotationEnabled),
+    rotationIntervalMs: Math.round(num(raw.rotationIntervalMs, DEFAULTS.rotationIntervalMs, 60_000, 86_400_000)),
+    rotationMinContext: Math.round(num(raw.rotationMinContext, DEFAULTS.rotationMinContext, 8_192, 2_000_000)),
     alertDedupeMs: Math.round(num(raw.alertDedupeMs, DEFAULTS.alertDedupeMs, 1_000, 86_400_000)),
     alertWebhookUrls: strList(raw.alertWebhookUrls, DEFAULTS.alertWebhookUrls),
     alertInbox: bool(raw.alertInbox, DEFAULTS.alertInbox),
@@ -306,6 +314,17 @@ function build() {
         .default([...DEFAULTS.alertThresholds])
         .description('多级额度预警阈值（消耗比例）。'),
       alertBalanceFloor: z.number().min(0).default(DEFAULTS.alertBalanceFloor).description('余额预警下限。'),
+      rotationEnabled: z.boolean().default(true).description('默认开启模型能力感知轮转。'),
+      rotationMinContext: z
+        .number()
+        .min(8_192)
+        .default(DEFAULTS.rotationMinContext)
+        .description('轮转允许的最小上下文 tokens；低于该值的模型不参与。'),
+      rotationIntervalMs: z
+        .number()
+        .min(60_000)
+        .default(DEFAULTS.rotationIntervalMs)
+        .description('模型轮转间隔毫秒数（最小 60s）。'),
       billingHolidays: z
         .array(z.string())
         .default([])
