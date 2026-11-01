@@ -387,6 +387,10 @@ window.__ModuleLoader__.load({
       }
     }
 
+    function PanelRoot() {
+      return h(PanelBoundary, null, h(Panel));
+    }
+
     return {
       inject: ['slots'],
       apply(ctx) {
@@ -404,7 +408,7 @@ window.__ModuleLoader__.load({
           }, Icon);
           mainDispose = ctx.slots.register({
             name: 'main', key: 'agi-federated',
-          }, PanelBoundary);
+          }, PanelRoot);
         }
 
         registerAll();
