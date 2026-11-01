@@ -417,6 +417,69 @@ const parseModelList = (payload) => {
   return out
 }
 
+/** 任务类别：决定自动挑哪个模型。 */
+const TASK_CLASSES = ['quick', 'code', 'reasoning', 'long', 'vision']
+
+/**
+ * 模型分类（启发式，基于官方模型 id/名称与上下文长度）：
+ * 只用于「自动挑一个更省/更合适」的默认建议，可被 provider.modelPolicy 显式覆盖。
+ */
+const classifyModel = (id, meta) => {
+  const text = `${id} ${meta?.name ?? ''}`.toLowerCase()
+  const contextWindow = Number(meta?.contextWindow) || 0
+  let tier = 'balanced'
+  if (/flash|mini|lite|small|turbo|fast|air|nano|haiku/.test(text)) tier = 'fast'
+  if (/pro|ultra|max|opus|reason|think|\br1\b|v4/.test(text)) tier = 'strong'
+  return {
+    id,
+    tier,
+    reasoning: /reason|think|\br1\b|o[1-9]\b/.test(text),
+    vision: /vision|omni|multimodal|\bvl\b/.test(text),
+    longContext: contextWindow >= 200_000,
+    contextWindow,
+  }
+}
+
+const modelCatalogueOf = (record) => {
+  const models = Array.isArray(record?.models) ? record.models : []
+  const meta = record?.modelMeta ?? {}
+  return models.map((id) => classifyModel(id, meta[id]))
+}
+
+/** 按任务挑模型：显式策略优先，否则按分类启发式；返回 null 表示该 provider 无可用模型。 */
+const resolveTaskModel = (record, task) => {
+  const policy = record?.modelPolicy
+  if (policy && typeof policy === 'object' && typeof policy[task] === 'string' && policy[task]) {
+    return { model: policy[task], reason: `policy:${task}`, source: 'policy' }
+  }
+  const catalogue = modelCatalogueOf(record)
+  if (!catalogue.length) return null
+  const pick = (predicate) => catalogue.find(predicate)
+  let chosen
+  if (task === 'quick') {
+    chosen = pick((entry) => entry.tier === 'fast') ?? pick((entry) => entry.tier === 'balanced') ?? catalogue[0]
+  } else if (task === 'long') {
+    chosen = pick((entry) => entry.longContext) ?? [...catalogue].sort((a, b) => b.contextWindow - a.contextWindow)[0]
+  } else if (task === 'vision') {
+    chosen = pick((entry) => entry.vision) ?? pick((entry) => entry.tier === 'strong') ?? catalogue[0]
+  } else if (task === 'code') {
+    chosen = pick((entry) => entry.tier === 'strong') ?? pick((entry) => entry.tier === 'balanced') ?? catalogue[0]
+  } else {
+    chosen = pick((entry) => entry.reasoning) ?? pick((entry) => entry.tier === 'strong') ?? catalogue[catalogue.length - 1]
+  }
+  return { model: chosen.id, reason: `auto:${chosen.tier}`, source: 'auto' }
+}
+
+/** 供 UI 展示的自动切换预览：每个任务类别会落到哪个模型。 */
+const autoModelPreview = (record) => {
+  const out = {}
+  for (const task of TASK_CLASSES) {
+    const decision = resolveTaskModel(record, task)
+    if (decision) out[task] = decision.model
+  }
+  return out
+}
+
 /** 套餐描述归一化：只接受已知字段，未知键丢弃。 */
 const PLAN_KINDS = ['payg', 'subscription']
 const sanitizePlan = (input) => {
@@ -1543,6 +1606,8 @@ class QuotaNexusRuntime {
       modelsCount: Array.isArray(record.models) ? record.models.length : 0,
       modelsPreview: (Array.isArray(record.models) ? record.models : []).slice(0, 5),
       modelMeta: record.modelMeta ?? null,
+      modelPolicy: record.modelPolicy ?? null,
+      autoModels: autoModelPreview(record),
       plan: planViewOf(record, rt),
       usage: rt?.usage
         ? {
@@ -1674,6 +1739,17 @@ class QuotaNexusRuntime {
       if (plan) next.plan = plan
     } else if (patch?.plan === null || patch?.plan === '') {
       delete next.plan
+    }
+    if (patch?.modelPolicy && typeof patch.modelPolicy === 'object') {
+      const policy = {}
+      for (const task of TASK_CLASSES) {
+        const value = patch.modelPolicy[task]
+        if (typeof value === 'string' && value.trim()) policy[task] = value.trim()
+      }
+      if (Object.keys(policy).length) next.modelPolicy = policy
+      else delete next.modelPolicy
+    } else if (patch?.modelPolicy === null || patch?.modelPolicy === '') {
+      delete next.modelPolicy
     }
     if (typeof patch?.apiKey === 'string' && patch.apiKey.trim()) {
       const secret = patch.apiKey.trim()
@@ -2102,6 +2178,50 @@ class QuotaNexusRuntime {
     return { ok: results.some((entry) => entry.ok), results }
   }
 
+  /**
+   * 任务驱动的模型自动切换：按任务类别挑一个模型 + 一个可用账号，
+   * 简单任务落到便宜模型、困难任务落到强模型，从而省额度又保证质量。
+   * 纯内存决策，不发起任何上游请求。
+   */
+  selectModel({ task = 'quick', providerId } = {}) {
+    const category = TASK_CLASSES.includes(task) ? task : 'quick'
+    const records = providerId
+      ? [this.providers.get(providerId)].filter(Boolean)
+      : [...this.providers.values()].filter((record) => record.enabled !== false)
+    const candidates = []
+    for (const record of records) {
+      const decision = resolveTaskModel(record, category)
+      if (!decision) continue
+      const rt = this.scheduler.accounts.get(record.id)
+      const blockedBy = rt ? this.scheduler.coolingReason(rt, decision.model) : 'unknown'
+      candidates.push({
+        providerId: record.id,
+        label: record.label,
+        vendorId: record.vendorId,
+        model: decision.model,
+        reason: decision.reason,
+        source: decision.source,
+        available: !blockedBy,
+        blockedBy: blockedBy ?? null,
+        protocol: kindOf(record),
+        balance: rt?.balance?.amount ?? null,
+        quotaRatio: rt?.quota?.ratio ?? null,
+      })
+    }
+    candidates.sort((a, b) => Number(b.available) - Number(a.available))
+    const decision = candidates[0] ?? null
+    const result = {
+      ok: Boolean(decision?.available),
+      task: category,
+      candidates,
+    }
+    // 只在有决策时给出 decision；无决策时给出可读的 note（两者都不使用 null，避免 schema 校验失败）。
+    if (decision) result.decision = decision
+    else result.note = records.length === 0 ? '池中没有启用的供应商' : '这些供应商都还没有同步模型目录，请先调用 sync-models'
+    if (decision && !decision.available) result.note = `首选 ${decision.label} 当前被 ${decision.blockedBy} 挡住`
+    return result
+  }
+
   /* ---------------- 本机客户端快照发现（只扫描，不静默导入） ---------------- */
 
   discoverySources() {
@@ -2438,6 +2558,16 @@ class HttpSurface {
       }
     })
 
+    add('POST', '/api/models/select', async (req, res) => {
+      if (!this.guard(req, res)) return
+      try {
+        const body = await readJsonBody(req)
+        writeJson(res, 200, { ok: true, ...this.runtime.selectModel({ task: body?.task, providerId: body?.providerId }) })
+      } catch (error) {
+        writeJson(res, 400, { ok: false, code: 'quota_nexus_bad_request', message: error?.message ?? String(error) })
+      }
+    })
+
     add('POST', '/api/providers/refresh', async (req, res) => {
       if (!this.guard(req, res)) return
       try {
@@ -2623,6 +2753,56 @@ const statusTool = (runtime) => ({
   },
 })
 
+/**
+ * 任务→模型的只读决策工具：让 Agent 自己能问「这件事该用哪个模型」。
+ */
+const selectModelTool = (runtime) => ({
+  name: 'quota_nexus_select_model',
+  description:
+    '按任务类别挑选模型与账号（纯内存决策，不发起上游请求，不消耗额度）：quick=省钱/轻任务，code=编码，reasoning=强推理，long=长上下文，vision=多模态。返回 decision（model/provider/reason/source）与全部候选；池为空或未同步模型时返回 note。',
+  parameters: {
+    type: 'object',
+    properties: {
+      task: {
+        type: 'string',
+        enum: TASK_CLASSES,
+        description: '任务类别；缺省 quick',
+      },
+      providerId: {
+        type: 'string',
+        description: '可选：只在某个供应商内挑选',
+      },
+    },
+    additionalProperties: false,
+  },
+  output: {
+    schema: {
+      type: 'object',
+      properties: {
+        ok: { type: 'boolean' },
+        task: { type: 'string' },
+        decision: { type: 'object' },
+        candidates: { type: 'array' },
+        note: { type: 'string' },
+      },
+      additionalProperties: true,
+    },
+    render: (_args, value) => {
+      const text = (() => {
+        try {
+          return JSON.stringify(value, null, 2)
+        } catch {
+          return String(value)
+        }
+      })()
+      return [{ type: 'text', text }]
+    },
+  },
+  async execute(args) {
+    return runtime.selectModel({ task: args?.task, providerId: args?.providerId })
+  },
+})
+
 /* ------------------------------------------------------------------ *
  * 插件入口
  * ------------------------------------------------------------------ */
@@ -2653,6 +2833,12 @@ export function apply(ctx, rawConfig) {
       return () => {}
     }
     return ctx.tools.register(statusTool(runtime))
+  })
+
+  // 1b) 任务→模型自动切换的只读决策工具。
+  effect(() => {
+    if (typeof ctx?.tools?.register !== 'function') return () => {}
+    return ctx.tools.register(selectModelTool(runtime))
   })
 
   // 2) 定时器（探活 / 活跃池刷新 / 首轮发现扫描）。
