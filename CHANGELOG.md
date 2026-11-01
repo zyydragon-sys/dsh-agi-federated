@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.5.0 — 2026-11-01
+
+- Memory: add a local-first, project-scoped memory bank shared by sessions in
+  the same working directory; global pages are opt-in.
+- Memory: add `agi_memory_remember`, `agi_memory_search`, `agi_memory_get`, and
+  `agi_memory_reflect`; BM25 recall, deduplication, bounded pages, and graph links.
+- Memory: auto-capture tool-error lessons and explicit "remember" intents; inject
+  bounded project-memory recall into the prompt.
+- UI: Project Memory is listed in the memory card, detailed page, and search.
+
 ## 1.4.0 — 2026-11-01
 
 - UI: add a safe `刷新界面` button (client reload only; no Host restart).
