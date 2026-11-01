@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.0 — 2026-11-01
+
+- Context: show occupancy percentage and 45/60/80% warning levels in the card
+  and runtime detail; use the last settled request as the displayed baseline.
+- Detail: search filters for memory clues, evidence records, and skills.
+- Models: track effective provider/model per session and keep a recent switch
+  history so a model change does not leave the card stuck on DeepSeek.
+
 ## 1.2.0 — 2026-11-01
 
 - Pricing: use the official DeepSeek Flash off-peak/peak rates and recompute
