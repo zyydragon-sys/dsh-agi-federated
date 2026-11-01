@@ -94,6 +94,8 @@ export const DEFAULTS = Object.freeze({
   /** sticky 策略下会话→账号绑定的存活时间。 */
   stickyTtlMs: 1_800_000,
   probeIntervalMs: 60_000,
+  /** 余额/额度快刷间隔：官方余额接口的轮询周期，默认 5s（UI 侧由 SSE 即时推送）。 */
+  balanceRefreshMs: 5_000,
   cooldown429Ms: 30_000,
   cooldown5xxMs: 15_000,
   cooldownCapMs: 900_000,
@@ -200,6 +202,7 @@ export function normalizeConfig(input) {
     queueWaitMs: Math.round(num(raw.queueWaitMs, DEFAULTS.queueWaitMs, 0, 2_000)),
     stickyTtlMs: Math.round(num(raw.stickyTtlMs, DEFAULTS.stickyTtlMs, 1_000, 86_400_000)),
     probeIntervalMs: Math.round(num(raw.probeIntervalMs, DEFAULTS.probeIntervalMs, 10_000, 3_600_000)),
+    balanceRefreshMs: Math.round(num(raw.balanceRefreshMs, DEFAULTS.balanceRefreshMs, 1_000, 600_000)),
     cooldown429Ms: Math.round(num(raw.cooldown429Ms, DEFAULTS.cooldown429Ms, 1_000, 3_600_000)),
     cooldown5xxMs: Math.round(num(raw.cooldown5xxMs, DEFAULTS.cooldown5xxMs, 1_000, 3_600_000)),
     cooldownCapMs: Math.round(num(raw.cooldownCapMs, DEFAULTS.cooldownCapMs, 1_000, 86_400_000)),
@@ -265,6 +268,11 @@ function build() {
         .min(10_000)
         .default(DEFAULTS.probeIntervalMs)
         .description('后台低频探活间隔毫秒数。'),
+      balanceRefreshMs: z
+        .number()
+        .min(1_000)
+        .default(DEFAULTS.balanceRefreshMs)
+        .description('余额/额度快刷间隔（毫秒）；UI 通过 SSE 即时更新，无需刷新页面。'),
       cooldown429Ms: z.number().min(1_000).default(DEFAULTS.cooldown429Ms).description('429 基础冷却毫秒数。'),
       cooldown5xxMs: z.number().min(1_000).default(DEFAULTS.cooldown5xxMs).description('5xx 基础冷却毫秒数。'),
       cooldownCapMs: z.number().min(1_000).default(DEFAULTS.cooldownCapMs).description('指数退避冷却上限。'),
