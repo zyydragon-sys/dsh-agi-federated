@@ -2100,6 +2100,13 @@ function escapeHtml(value) {
 function renderSkillsPage(snapshot) {
   const skills = Array.isArray(snapshot?.projectSkills) ? snapshot.projectSkills : []
   const auditRecent = Array.isArray(snapshot?.audit?.recent) ? snapshot.audit.recent.slice(-12) : []
+  const memory = snapshot?.memory || {}
+  const cost = snapshot?.cost || {}
+  const session = snapshot?.session || {}
+  const providers = Array.isArray(snapshot?.providers) ? snapshot.providers : []
+  const bank = Array.isArray(snapshot?.details?.memory?.bank) ? snapshot.details.memory.bank.slice(-12).reverse() : []
+  const clues = Array.isArray(snapshot?.details?.memory?.clues) ? snapshot.details.memory.clues.slice(-20).reverse() : []
+  const deepseek = providers.find((provider) => provider.id === 'deepseek')
   const cards = skills.map((skill) => `
     <article class="card">
       <div class="card-head">
@@ -2112,6 +2119,14 @@ function renderSkillsPage(snapshot) {
   const auditRows = auditRecent.map((entry) => `
     <li><strong>${escapeHtml(entry.kind || 'event')}</strong> · seq ${escapeHtml(entry.seq ?? '—')} · ${escapeHtml(entry.subject || '')}
       <div>${escapeHtml(entry.reason || '')}</div>
+    </li>`).join('')
+  const bankRows = bank.map((item) => `
+    <li><strong>${escapeHtml(item.title || '—')}</strong> <span>${escapeHtml((item.tags || []).join(' · '))}</span>
+      <div>${escapeHtml(item.summary || '')}</div>
+    </li>`).join('')
+  const clueRows = clues.map((clue) => `
+    <li><strong>${escapeHtml(clue.kind || 'clue')}</strong> <span>${escapeHtml((clue.keywords || []).slice(0, 8).join(' · '))}</span>
+      <div>${escapeHtml(clue.summary || '')}</div>
     </li>`).join('')
   return `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -2128,6 +2143,13 @@ h1 { margin:0; font-size:24px; letter-spacing:-.02em; }
 .chip { display:inline-flex; align-items:center; border:1px solid var(--line); background:var(--panel); border-radius:999px; padding:5px 10px; color:var(--muted); font-size:12px; text-decoration:none; }
 .chip:hover { border-color:var(--brand); color:var(--brand); }
 .chip.ok { color:var(--ok); border-color:#b7e4c7; background:#f0fdf4; }
+.summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:14px; margin:0 0 22px; scroll-margin-top:18px; }
+.stat { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px; }
+.stat h3 { margin:0 0 6px; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+.stat strong { display:block; font-size:24px; letter-spacing:-.03em; }
+.stat small { color:var(--muted); font-size:12px; }
+.stat .line { display:flex; justify-content:space-between; gap:12px; margin-top:6px; color:var(--muted); font-size:12px; }
+.stat .line b { color:var(--text); }
 .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:14px; scroll-margin-top:18px; }
 .card { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px; box-shadow:0 1px 2px rgba(16,24,40,.04); }
 .card-head { display:flex; justify-content:space-between; gap:10px; align-items:flex-start; }
@@ -2153,9 +2175,43 @@ details li div { margin-top:3px; color:var(--text); font-size:12px; }
   <a class="chip ok" href="/agi-federated/status" target="_blank" rel="noreferrer">Host ${escapeHtml(snapshot?.health?.ok ? 'ok' : 'degraded')}</a>
   <a class="chip" href="/agi-federated/status" target="_blank" rel="noreferrer">v${escapeHtml(snapshot?.version || '—')}</a>
   <a class="chip" href="/agi-federated/status" target="_blank" rel="noreferrer">Host ${escapeHtml(snapshot?.compat?.hostVersion || '—')}</a>
+  <a class="chip" href="#memory-card">记忆 ${escapeHtml(memory.bank || 0)}</a>
+  <a class="chip" href="#billing-card">计费 $${Number(cost.sessionUsd || 0).toFixed(4)}</a>
   <a class="chip" href="#skills">永久技能 ${skills.length}</a>
   <a class="chip" href="#audit">审计 seq ${escapeHtml(snapshot?.audit?.seq ?? 0)}</a>
 </div>
+<div class="summary">
+  <article class="stat" id="memory-card">
+    <h3>长效记忆</h3>
+    <strong>${escapeHtml(memory.bank || 0)}</strong>
+    <small>Project Memory · ${escapeHtml(memory.clues || 0)} Clue · ${escapeHtml(snapshot?.evidence?.records || 0)} Evidence</small>
+    <div class="line"><span>Memory sessions</span><b>${escapeHtml(snapshot?.evidence?.sessions || 0)}</b></div>
+    <div class="line"><span>Projects</span><b>${escapeHtml(memory.projects || 0)}</b></div>
+  </article>
+  <article class="stat" id="billing-card">
+    <h3>计费</h3>
+    <strong>$${Number(cost.sessionUsd || 0).toFixed(4)}</strong>
+    <small>本次会话 · 本月 $${Number(cost.monthUsd || 0).toFixed(4)}</small>
+    <div class="line"><span>DeepSeek 余额</span><b>${deepseek?.balance == null ? '—' : escapeHtml(deepseek.balance) + ' ' + escapeHtml(deepseek.currency || '')}</b></div>
+    <div class="line"><span>Provider</span><b>${providers.filter((provider) => provider.status === 'ok').length} / ${providers.length} ok</b></div>
+  </article>
+  <article class="stat">
+    <h3>运行</h3>
+    <strong>${escapeHtml(snapshot?.model?.provider || '—')}</strong>
+    <small>${escapeHtml(snapshot?.model?.model || '—')} · context ${Math.round(Number(session.contextRatio || 0) * 100)}%</small>
+    <div class="line"><span>Context</span><b>${escapeHtml(Number(session.contextTokens || 0).toLocaleString())} / ${escapeHtml(Number(session.contextWindow || 0).toLocaleString())}</b></div>
+    <div class="line"><span>Audit</span><b>seq ${escapeHtml(snapshot?.audit?.seq ?? 0)}${snapshot?.audit?.broken ? ' · BROKEN' : ' · 完整'}</b></div>
+  </article>
+</div>
+<details id="memory-details">
+  <summary>记忆详情 · Project Memory ${bank.length} / Clue ${clues.length}</summary>
+  ${bankRows ? `<h4>Project Memory</h4><ul>${bankRows}</ul>` : '<p class="meta">暂无项目记忆</p>'}
+  ${clueRows ? `<h4>Clue Store</h4><ul>${clueRows}</ul>` : '<p class="meta">暂无线索</p>'}
+</details>
+<details id="billing-details">
+  <summary>计费与 Provider 详情</summary>
+  <ul>${providers.map((provider) => `<li><strong>${escapeHtml(provider.label || provider.id)}</strong> <span>${escapeHtml(provider.status || '—')}${provider.balance == null ? '' : ' · ' + escapeHtml(provider.balance) + ' ' + escapeHtml(provider.currency || '')}</span></li>`).join('') || '<li>暂无 provider</li>'}</ul>
+</details>
 <div id="skills" class="grid">${cards || '<div class="empty">暂未发现项目级永久技能</div>'}</div>
 <details id="audit">
   <summary>审计记录 · seq ${escapeHtml(snapshot?.audit?.seq ?? 0)}${snapshot?.audit?.broken ? ' · BROKEN' : ' · 完整'}</summary>
