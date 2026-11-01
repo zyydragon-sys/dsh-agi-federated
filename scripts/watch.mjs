@@ -1,4 +1,4 @@
-﻿/** Debounced local-to-GitHub publisher. Requires GITHUB_TOKEN in the environment. */
+/** Debounced local-to-GitHub publisher. Requires GITHUB_TOKEN in the environment. */
 import { watch } from 'node:fs'
 import { spawn } from 'node:child_process'
 import path from 'node:path'
