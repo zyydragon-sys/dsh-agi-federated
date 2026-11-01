@@ -3,6 +3,17 @@
 The nested bundle keeps its own version, independent of the root
 `dsh-agi-federated` bundle (`plugins/dsh-quota-nexus/package.json`).
 
+## 1.11.0 — 2026-11-01
+
+- Per-model trend chart (console “小时趋势” template): `GET /api/usage` now returns
+  `series[]` — one entry per model with its own bucket array — plus
+  `peakBucketTokens` and `totals.avgTokensText`. The panel renders a stacked
+  per-model bar chart with a colour legend, the total and the hourly/daily average,
+  so a period split across models is readable at a glance.
+- Series cap: at most six models are returned (largest first) to keep the payload and
+  the legend bounded; the per-model breakdown list below the chart still lists up to
+  four rows with requests and tokens.
+
 ## 1.10.0 — 2026-11-01
 
 - Usage dashboard (console-style): four KPI cards — Tokens, API requests, total
