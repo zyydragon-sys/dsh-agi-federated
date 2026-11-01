@@ -1,4 +1,4 @@
-﻿# Maintenance and publication
+# Maintenance and publication
 
 ## Source of truth
 
@@ -24,34 +24,37 @@ The nested `plugins/dsh-quota-nexus` bundle keeps its own version.
 
 ## Publish
 
+Security default: **a temporary token per update**. Do not persist a PAT in the
+user environment (`setx`), in a shell profile, or in the repository; the token
+should exist only for the seconds it takes to publish.
+
 ```powershell
 # Local plan, no network or token
 node scripts/publish.mjs --all --dry-run
 
-# Publish both bundles
+# Publish both bundles; the prompt masks input and the token never touches disk
 node scripts/publish.mjs --all
+#   (or explicitly: Read-Host "PAT" | node scripts/publish.mjs --all --token-stdin)
 
 # Publish only the root AGI bundle
 node scripts/publish.mjs --plugin dsh-agi-federated
 ```
 
-The publisher reads `GITHUB_TOKEN`, `GH_TOKEN`, or the first line of
-`..\\.github-token`. A token that came from the file is removed after a
-successful upload; an environment token is left alone.
+Token sources, preferred first: `--token-stdin` (masked prompt / pipe),
+`--token-file` (deleted after a successful run), `--token`, and only for CI
+`GITHUB_TOKEN`/`GH_TOKEN`. Nothing logs the token and no code path writes it
+back to disk.
 
 ## Monitor
 
 ```powershell
 # Compare local files and package version with the published repository
 node scripts/monitor.mjs
-
-# Optional continuous watcher; requires GITHUB_TOKEN in the environment
-node scripts/watch.mjs
 ```
 
-The watcher debounces filesystem changes and calls `publish.mjs --all`.
-It is intentionally not started automatically: a token should not be written
-into a long-lived process by default.
+`scripts/watch.mjs` is a convenience watcher that keeps a token in a long-lived
+process; it therefore violates the temporary-token default. Start it only when
+you explicitly accept that tradeoff, and stop it afterwards.
 
 ## Release checklist
 
