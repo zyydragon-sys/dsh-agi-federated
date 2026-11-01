@@ -1,0 +1,112 @@
+- insert:
+    - id: dsh-agi-federated
+      name: dsh-agi-federated
+      config:
+        dataDir: 'D:\DeepSeek Harness\agi-federated'
+        memory:
+          enabled: true
+          hotMaxItems: 24
+          hotMaxChars: 1200
+          clueMaxItems: 2000
+          summaryMaxChars: 220
+          bm25K1: 1.2
+          bm25B: 0.75
+          recallTopK: 6
+          recallMinScore: 0.35
+          injectionMaxChars: 3200
+          injectOrder: 64
+        context:
+          enabled: true
+          keepRecentTurns: 6
+          minEvictNodes: 4
+          placeholderLength: 160
+          idleDelayMs: 1200
+        skills:
+          enabled: true
+          maxStaged: 100
+          maxContentBytes: 65536
+          reviewDelayMs: 2500
+          minContentChars: 40
+        evidence:
+          enabled: true
+          indexLimit: 400
+          gateMode: enforce
+          blockOnUnverified: true
+          guardTools:
+            - write
+            - edit
+          maxClaimsPerCall: 24
+          prompt: true
+        usage:
+          enabled: true
+          refreshIntervalMs: 1000
+          streamDebounceMs: 150
+          statusPollMs: 2000
+          currency: USD
+          defaultMonthlyBudgetUsd: 0
+          breakerCooldownMs: 60000
+          includeUsage: true
+          providers:
+            - id: deepseek
+              label: DeepSeek
+              protocol: deepseek-account
+              credentialEnv: DEEPSEEK_API_KEY
+              spendOnly: false
+              monthlyBudgetUsd: 0
+              currency: CNY
+              enabled: true
+            - id: openai
+              label: OpenAI
+              protocol: openai
+              credentialEnv: OPENAI_API_KEY
+              spendOnly: true
+              monthlyBudgetUsd: 0
+              currency: USD
+              enabled: true
+            - id: anthropic
+              label: Anthropic
+              protocol: anthropic
+              credentialEnv: ANTHROPIC_API_KEY
+              spendOnly: true
+              monthlyBudgetUsd: 0
+              currency: USD
+              enabled: true
+            - id: google
+              label: Google
+              protocol: gemini
+              credentialEnv: GEMINI_API_KEY
+              spendOnly: true
+              monthlyBudgetUsd: 0
+              currency: USD
+              enabled: true
+        security:
+          enforce: true
+          workspaceCredentialEnv:
+            - DSH_AGI_WORKSPACE_TOKEN
+          denyWritesWithoutCredential: false
+          auditFile: audit.jsonl
+          auditMaxLines: 20000
+        federation:
+          jepa:
+            enabled: true
+            allow: true
+            blocking: false
+            timeoutMs: 50
+          cuv:
+            enabled: true
+            allow: true
+            blocking: false
+            timeoutMs: 50
+          mpRcp:
+            enabled: true
+            allow: true
+            blocking: false
+            timeoutMs: 50
+        compat:
+          enabled: true
+          warnOnly: true
+        ui:
+          enabled: true
+          pollIntervalMs: 2000
+          startCollapsed: false
+          position: bottom-right
