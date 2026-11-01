@@ -31,6 +31,7 @@ node scripts/publish.mjs --plugin dsh-quota-nexus
 - **Staged skills** — writes go to `staged/`; promotion is deferred to idle/session-end review.
 - **Evidence gate** — every `write`/`edit` claim is cross-checked against a per-session index of tool parameter and output anchors (400 records), with a five-step false-positive ladder.
 - **Usage monitor** — dual-channel token accounting (live estimate + official usage settlement), provider balance refresh every second, monthly-budget breaker for `spendOnly` providers, and a floating status window.
+- **Model tracking** — the active provider/model follows `agent/request` and request-context changes, with a recent model-switch history in the panel.
 - **Official cost** — DeepSeek Flash pricing from the API price table (off-peak/peak), with the last settled request breakdown shown in the panel.
 - **Zero trust** — workspace credential required for federated mutations; every deny/ask is appended to a hash-chained audit log.
 - **Federation seams** — JEPA world model, CUV value/conflict scorer, and mp-rcp quorum arbiter are mounted as advisory, default-allow seams.
