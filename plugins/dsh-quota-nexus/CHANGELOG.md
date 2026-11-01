@@ -3,6 +3,58 @@
 The nested bundle keeps its own version, independent of the root
 `dsh-agi-federated` bundle (`plugins/dsh-quota-nexus/package.json`).
 
+## 1.3.0 — 2026-11-01
+
+- Balance: the pool now reads official **account balance**, not only rate-limit
+  headers. DeepSeek ships the endpoint in the vendor catalog
+  (`GET https://api.deepseek.com/user/balance`, documented at
+  <https://api-docs.deepseek.com/api/get-user-balance/>); the parser reads
+  `balance_infos[].total_balance` (currency, granted, topped up, `is_available`)
+  and falls back to common flat shapes (`balance`, `data.total_balance`) so other
+  vendors work by supplying a `balanceUrl`.
+- Balance: `fetchBalance()` runs on every probe and right after add/update, keeps
+  the last value in `state.json`, exposes it as `provider.balance`, and alerts
+  when it falls to `alertBalanceFloor`. A failing balance endpoint only records a
+  warning — it never demotes a healthy provider.
+- UI: the card shows `余额 <CUR> <amount> · <time>`, and the dialog gains an
+  optional 余额接口 URL field (empty = the vendor's official endpoint).
+- Known limit: the MiniMax console page the operator supplied
+  (<https://platform.minimax.cn/console/plan>) is an authenticated web UI, not a
+  public API; MiniMax keeps no balance value until a `balanceUrl` is configured.
+
+## 1.2.2 — 2026-11-01
+
+- Quota: the card shows the last probe outcome (probe HTTP 404 (reachable) etc.), so a provider that reports no quota headers is distinguishable from one that was never probed.
+- Quota: providerView exposes lastProbeStatus / lastProbeHttp.
+
+## 1.2.1 — 2026-11-01
+
+- Quota: probe responses now feed the quota meter. `probeRecord()` captures the
+  `x-ratelimit-*` / `anthropic-ratelimit-*` / `retry-after` headers of the
+  `/models` probe and `probe()` ingests them after the health reset, so a
+  provider that reports quota only on probe traffic no longer stays at
+  “尚未观测到额度响应头”.
+- Quota: the card shows the observation time (`quotaObservedAt`) beside the
+  percentage, and `providerView` exposes `lastProbeAt` for diagnostics.
+- Quota: the empty-state text now names the exact headers it is waiting for
+  instead of the vaguer “该账号尚未上报额度响应头”.
+
+## 1.2.0 — 2026-11-01
+
+- Providers: add an explicit **wire-protocol override** (`protocol`:
+  `openai-compatible` | `anthropic-messages` | `gemini`) so one vendor can serve
+  two protocols — e.g. a built-in DeepSeek or MiniMax entry pointed at its
+  `/anthropic` endpoint now sends `x-api-key` + `anthropic-version` instead of
+  `Bearer`, without switching to the custom vendor.
+- Providers: when `protocol` is not set, it is inferred from the vendor kind and
+  the `baseUrl` shape (`/anthropic` ⇒ Anthropic Messages); the card shows
+  `<protocol> (auto)` so an inferred protocol is never silent. Explicit settings
+  always win.
+- Providers: probe/lease URLs tolerate a full endpoint pasted into `baseUrl`
+  (`…/v1/messages` is reduced to `…/v1` before probing).
+- UI: the dialog gains a 接口协议 selector (auto / OpenAI 兼容 / Anthropic
+  Messages / Gemini) and the card row shows the effective protocol.
+
 ## 1.1.1 — 2026-11-01
 
 - UI: the provider dialog now shows **both** protocols at once — the Base URL
