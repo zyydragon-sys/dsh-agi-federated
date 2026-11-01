@@ -175,6 +175,28 @@ await test('usage: 缓存命中率按 cached/(input+cached) 计算', () => {
   assert.equal(row.totals.cacheHitRate, 75)
 })
 
+await test('profile-guard: 合法清单通过校验', () => {
+  const good = Buffer.from(JSON.stringify({ dependencies: { 'dsh-quota-nexus': 'link:D:/Deepseek工作区/dsh-quota-nexus' }, dsh: { profile: { bundles: ['dsh-quota-nexus', 'dsh-agi-federated'] } } }))
+  const verdict = mod.validateProfileManifest(good)
+  assert.equal(verdict.ok, true)
+})
+
+await test('profile-guard: 识别 BOM / 乱码 / 丢失 bundle', () => {
+  const body = '{"dependencies":{"dsh-quota-nexus":"link:D:/Deepseek宸ヤ綔鍖?dsh-quota-nexus"},"dsh":{"profile":{"bundles":["dsh-agi-federated"]}}}'
+  const withBom = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(body)])
+  const verdict = mod.validateProfileManifest(withBom)
+  assert.equal(verdict.ok, false)
+  assert.ok(verdict.problems.some((p) => p.includes('BOM')), verdict.problems.join('; '))
+  assert.ok(verdict.problems.some((p) => p.includes('乱码')), verdict.problems.join('; '))
+  assert.ok(verdict.problems.some((p) => p.includes('缺少 dsh-quota-nexus')), verdict.problems.join('; '))
+})
+
+await test('profile-guard: 非法 JSON 不抛错', () => {
+  const verdict = mod.validateProfileManifest(Buffer.from('{ not json'))
+  assert.equal(verdict.ok, false)
+  assert.ok(verdict.problems.some((p) => p.includes('JSON')))
+})
+
 await test('rotation: 最近有用量时跳过切换（空闲保护）', async () => {
   runtime.lastUsageAt = Date.now()
   runtime.config.rotationIdleOnly = true
