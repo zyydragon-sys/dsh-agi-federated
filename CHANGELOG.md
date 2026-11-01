@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.2 — 2026-11-01
+
+- Fix blank AGI panel on first render: guard the Project Memory count until
+  the first status payload arrives. The previous `data.memory` access threw
+  while `data` was still null, so the whole main panel component crashed.
+
 ## 1.5.1 — 2026-11-01
 
 - Fix startup activation: declare `tools` as a required injection and acquire
