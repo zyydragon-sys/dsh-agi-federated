@@ -2120,6 +2120,7 @@ class AgiFederated {
     this.providerStates = new Map()
     this.lastSessionId = ''
     this.lastModel = { provider: '', model: '' }
+    this.sessionModels = new Map()
     this.lastTool = null
     this.lastSettlement = null
     this.lastBalanceRefresh = 0
@@ -2375,6 +2376,17 @@ class AgiFederated {
       }
     })
 
+    this.on('agent/request', async (payload, next) => {
+      const config = await next()
+      try {
+        const sid = payload?.agent?.id ? String(payload.agent.id) : ''
+        if (sid && config) this.noteModel(sid, config.provider, config.model, 'agent/request')
+      } catch {
+        // Model tracking is advisory; the request must proceed.
+      }
+      return config
+    })
+
     this.on('agent/request-error', (payload) => {
       try {
         this.handleRequestError(payload)
@@ -2461,6 +2473,26 @@ class AgiFederated {
     void this.saveMemory()
   }
 
+  noteModel(sid, provider, model, source = '') {
+    const nextProvider = asString(provider).trim()
+    const nextModel = asString(model).trim()
+    if (!nextProvider && !nextModel) return
+    const resolved = {
+      provider: nextProvider || this.lastModel.provider,
+      model: nextModel || this.lastModel.model,
+    }
+    this.lastModel = resolved
+    if (!sid) return
+    const previous = this.sessionModels.get(sid) || { provider: '', model: '', history: [] }
+    const history = Array.isArray(previous.history) ? previous.history.slice() : []
+    const last = history[history.length - 1]
+    if (!last || last.provider !== resolved.provider || last.model !== resolved.model) {
+      history.push({ ...resolved, at: Date.now(), source })
+      while (history.length > 12) history.shift()
+    }
+    this.sessionModels.set(sid, { ...resolved, history })
+  }
+
   handleSessionEvent(session, event) {
     if (!session || !event || typeof event !== 'object') return
     const sid = String(session.id)
@@ -2478,10 +2510,7 @@ class AgiFederated {
       case 'assistant/message': {
         const message = event.data?.message
         if (message?.source?.provider) {
-          this.lastModel = {
-            provider: asString(message.source.provider),
-            model: asString(message.source.model),
-          }
+          this.noteModel(sid, message.source.provider, message.source.model, 'assistant/message')
         }
         const usage = normalizeTokenUsage(event.data?.usage) || extractUsageFromStream(event.data?.stream)
         if (usage) this.settleStreamForStep(sid, event.data?.turn, event.data?.step, usage, 'assistant/message')
@@ -2521,19 +2550,13 @@ class AgiFederated {
       case 'request/header': {
         const config = event.data?.header?.config
         if (config?.provider) {
-          this.lastModel = {
-            provider: asString(config.provider),
-            model: asString(config.model),
-          }
+          this.noteModel(sid, config.provider, config.model, 'request/header')
         }
         break
       }
       case 'request/context': {
         if (event.data?.provider) {
-          this.lastModel = {
-            provider: asString(event.data.provider),
-            model: asString(event.data.model || this.lastModel.model),
-          }
+          this.noteModel(sid, event.data.provider, event.data.model || this.lastModel.model, 'request/context')
         }
         break
       }
@@ -2890,12 +2913,17 @@ class AgiFederated {
       const session = this.ctx?.get?.('sessions')?.get?.(sid)
       let model = { provider: '', model: '' }
       try {
-        const context = session?.requestContext?.()
-        if (context) model = { provider: asString(context.provider), model: asString(context.model) }
+        const known = this.sessionModels.get(sid)
+        if (known?.provider) model = { provider: known.provider, model: known.model }
+        else {
+          const context = session?.requestContext?.()
+          if (context) model = { provider: asString(context.provider), model: asString(context.model) }
+        }
       } catch {
         // Route metadata is optional.
       }
       if (!model.provider) model = { ...this.lastModel }
+      if (model.provider) this.noteModel(sid, model.provider, model.model, 'stream-start')
       const inputEstimate = this.estimateInputTokens(session)
       const stream = {
         attemptId,
@@ -2976,7 +3004,7 @@ class AgiFederated {
   publishStream(stream) {
     if (!stream || stream.settled) return
     this.lastSessionId = stream.sessionId
-    this.lastModel = { provider: stream.provider, model: stream.model }
+    this.noteModel(stream.sessionId, stream.provider, stream.model, 'stream')
   }
 
   estimateInputTokens(session) {
@@ -3382,12 +3410,17 @@ class AgiFederated {
     await this.ready
     const sid = asString(sessionId) || this.lastSessionId
     const session = sid ? this.ctx?.get?.('sessions')?.get?.(sid) : undefined
-    let model = { ...this.lastModel }
+    const knownModel = sid ? this.sessionModels.get(sid) : null
+    let model = knownModel?.provider
+      ? { provider: knownModel.provider, model: knownModel.model }
+      : { ...this.lastModel }
     let contextWindow = 0
     try {
       const context = session?.requestContext?.()
       if (context) {
-        model = { provider: asString(context.provider), model: asString(context.model) }
+        if (!knownModel?.provider) {
+          model = { provider: asString(context.provider), model: asString(context.model) }
+        }
         contextWindow = Math.max(0, Math.trunc(finiteNumber(context.contextWindow, 0)))
       }
     } catch {
@@ -3504,6 +3537,7 @@ class AgiFederated {
       generatedAt: Date.now(),
       sessionId: sid,
       model,
+      modelHistory: sid && this.sessionModels.get(sid)?.history ? this.sessionModels.get(sid).history : [],
       session: {
         inputTokens: sessionUsage.inputTokens,
         outputTokens: sessionUsage.outputTokens,
