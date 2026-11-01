@@ -2088,6 +2088,82 @@ const UI_CLIENT_JS = String.raw`
 // Plugin
 // ---------------------------------------------------------------------------
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+}
+
+function renderSkillsPage(snapshot) {
+  const skills = Array.isArray(snapshot?.projectSkills) ? snapshot.projectSkills : []
+  const auditRecent = Array.isArray(snapshot?.audit?.recent) ? snapshot.audit.recent.slice(-12) : []
+  const cards = skills.map((skill) => `
+    <article class="card">
+      <div class="card-head">
+        <h2>${escapeHtml(skill.name)}</h2>
+        <span class="badge">永久 · 可升级</span>
+      </div>
+      <p>${escapeHtml(skill.description || '—')}</p>
+      <div class="meta">${escapeHtml(skill.origin === 'darwin' ? 'darwin 演进' : '人工维护')} · ${Number(skill.bytes || 0).toLocaleString()} bytes</div>
+    </article>`).join('')
+  const auditRows = auditRecent.map((entry) => `
+    <li><strong>${escapeHtml(entry.kind || 'event')}</strong> · seq ${escapeHtml(entry.seq ?? '—')} · ${escapeHtml(entry.subject || '')}
+      <div>${escapeHtml(entry.reason || '')}</div>
+    </li>`).join('')
+  return `<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AGI Federated · 永久技能</title>
+<style>
+:root { color-scheme: light; --bg:#f6f8fb; --panel:#fff; --text:#142033; --muted:#637083; --line:#dfe5ee; --brand:#2563eb; --ok:#15803d; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:14px/1.55 -apple-system,"Segoe UI",sans-serif; }
+main { max-width:1120px; margin:0 auto; padding:32px 24px 56px; }
+header { display:flex; justify-content:space-between; gap:16px; align-items:flex-start; margin-bottom:22px; }
+h1 { margin:0; font-size:24px; letter-spacing:-.02em; }
+.sub { margin:6px 0 0; color:var(--muted); }
+.chips { display:flex; flex-wrap:wrap; gap:8px; margin:18px 0 22px; }
+.chip { display:inline-flex; align-items:center; border:1px solid var(--line); background:var(--panel); border-radius:999px; padding:5px 10px; color:var(--muted); font-size:12px; text-decoration:none; }
+.chip:hover { border-color:var(--brand); color:var(--brand); }
+.chip.ok { color:var(--ok); border-color:#b7e4c7; background:#f0fdf4; }
+.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:14px; scroll-margin-top:18px; }
+.card { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px; box-shadow:0 1px 2px rgba(16,24,40,.04); }
+.card-head { display:flex; justify-content:space-between; gap:10px; align-items:flex-start; }
+h2 { margin:0; font-size:14px; font-weight:700; overflow-wrap:anywhere; }
+.badge { white-space:nowrap; color:var(--ok); background:#f0fdf4; border:1px solid #b7e4c7; border-radius:999px; padding:2px 7px; font-size:11px; }
+.card p { margin:10px 0 10px; color:var(--muted); min-height:44px; }
+.meta { color:var(--muted); font-size:12px; }
+button { border:1px solid var(--line); background:var(--panel); color:var(--text); border-radius:9px; padding:8px 12px; cursor:pointer; font:inherit; }
+button:hover { border-color:var(--brand); color:var(--brand); }
+.empty { padding:28px; border:1px dashed var(--line); border-radius:12px; color:var(--muted); }
+details { margin-top:22px; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
+summary { cursor:pointer; color:var(--muted); font-weight:600; }
+details ul { margin:12px 0 0; padding-left:18px; }
+details li { margin:8px 0; color:var(--muted); }
+details li div { margin-top:3px; color:var(--text); font-size:12px; }
+</style></head>
+<body><main>
+<header>
+  <div><h1>AGI Federated</h1><p class="sub">已安装的永久技能 · 可学习升级 · 受控演进器</p></div>
+  <button onclick="location.reload()">刷新</button>
+</header>
+<div class="chips">
+  <a class="chip ok" href="/agi-federated/status" target="_blank" rel="noreferrer">Host ${escapeHtml(snapshot?.health?.ok ? 'ok' : 'degraded')}</a>
+  <a class="chip" href="/agi-federated/status" target="_blank" rel="noreferrer">v${escapeHtml(snapshot?.version || '—')}</a>
+  <a class="chip" href="/agi-federated/status" target="_blank" rel="noreferrer">Host ${escapeHtml(snapshot?.compat?.hostVersion || '—')}</a>
+  <a class="chip" href="#skills">永久技能 ${skills.length}</a>
+  <a class="chip" href="#audit">审计 seq ${escapeHtml(snapshot?.audit?.seq ?? 0)}</a>
+</div>
+<div id="skills" class="grid">${cards || '<div class="empty">暂未发现项目级永久技能</div>'}</div>
+<details id="audit">
+  <summary>审计记录 · seq ${escapeHtml(snapshot?.audit?.seq ?? 0)}${snapshot?.audit?.broken ? ' · BROKEN' : ' · 完整'}</summary>
+  ${auditRows ? `<ul>${auditRows}</ul>` : '<p class="meta">暂无审计记录</p>'}
+</details>
+</main></body></html>`
+}
+
 class AgiFederated {
   constructor(ctx, rawConfig) {
     this.ctx = ctx
@@ -4346,6 +4422,24 @@ class AgiFederated {
           }
         },
       })
+      const skillsDispose = register({
+        kind: 'exact',
+        path: '/agi-federated/skills',
+        handler: async (request, response) => {
+          try {
+            const body = renderSkillsPage(await this.status('', true))
+            response.writeHead(200, {
+              'content-type': 'text/html; charset=utf-8',
+              'cache-control': 'no-store',
+              'x-content-type-options': 'nosniff',
+            })
+            response.end(request.method === 'HEAD' ? undefined : body)
+          } catch (error) {
+            response.writeHead(500, { 'content-type': 'text/html; charset=utf-8' })
+            response.end(`<!doctype html><meta charset="utf-8"><h1>AGI skills unavailable</h1><pre>${escapeHtml(error)}</pre>`)
+          }
+        },
+      })
       let indexDispose = () => undefined
       if (typeof web.tapIndex === 'function') {
         const query = new URLSearchParams({
@@ -4377,6 +4471,9 @@ class AgiFederated {
           } catch {}
           try {
             errorDispose()
+          } catch {}
+          try {
+            skillsDispose()
           } catch {}
           try {
             indexDispose()
