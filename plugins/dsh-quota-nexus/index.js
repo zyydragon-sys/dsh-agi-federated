@@ -509,7 +509,7 @@ const sanitizePlan = (input) => {
   const windows = Array.isArray(input.windows)
     ? input.windows.map(sanitizeWindow).filter(Boolean).slice(0, MAX_PLAN_WINDOWS)
     : []
-  return { kind, limit, unit, periodMs, anchorAt, ...(windows.length ? { windows } : {}) }
+  return { kind, limit, unit, periodMs, anchorAt: anchorAt ?? (kind === 'subscription' ? wallNow() : null), ...(windows.length ? { windows } : {}) }
 }
 
 /** 窗口内的用量：按本地事件环统计（请求数或 tokens）。 */
@@ -533,7 +533,8 @@ const planViewOf = (record, rt) => {
   const plan = record?.plan
   if (!plan?.kind) return null
   const now = wallNow()
-  const anchorAt = Number(plan.anchorAt) || null
+  // 未声明锚点时以当前时刻为窗口起点：这样 resetsAt 总是 now + limitMs，倒计时不为空。
+  const anchorAt = Number(plan.anchorAt) || now
   const events = Array.isArray(rt?.events) ? rt.events : []
   const unit = plan.unit ?? 'requests'
 
@@ -1746,7 +1747,7 @@ class QuotaNexusRuntime {
       ...(typeof input?.rechargeUrl === 'string' && input.rechargeUrl.trim()
         ? { rechargeUrl: input.rechargeUrl.trim() }
         : {}),
-      ...(sanitizePlan(input?.plan) ? { plan: sanitizePlan(input.plan) } : {}),
+      ...(sanitizePlan(input?.plan) ? { plan: withAnchor(sanitizePlan(input.plan)) } : {}),
       credential: secret
         ? { type: input?.credentialType === 'oauth' ? 'oauth' : 'api-key', secret, masked: maskSecret(secret) }
         : { type: 'none', secret: '', masked: '' },
