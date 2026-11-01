@@ -590,6 +590,19 @@ function nextMonthStart(date = new Date()) {
   return Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1, 0, 0, 0, 0)
 }
 
+/**
+ * DeepSeek Flash peak windows in UTC: 01:00-04:00 and 06:00-10:00 on weekdays.
+ * Chinese public holidays are not in this local calendar and are treated as
+ * off-peak; the official page remains the billing source of truth.
+ * https://api-docs.deepseek.com/quick_start/pricing
+ */
+function isDeepSeekPeak(date = new Date()) {
+  const day = date.getUTCDay()
+  if (day === 0 || day === 6) return false
+  const hour = date.getUTCHours()
+  return (hour >= 1 && hour < 4) || (hour >= 6 && hour < 10)
+}
+
 function isoTime(timestamp = Date.now()) {
   try {
     return new Date(timestamp).toISOString()
@@ -1166,12 +1179,14 @@ class UsageLedger {
     const output = Math.max(0, finiteNumber(usage?.outputTokens, 0))
     const cacheRead = Math.max(0, finiteNumber(usage?.cacheReadTokens, 0))
     const cacheWrite = Math.max(0, finiteNumber(usage?.cacheWriteTokens, 0))
+    const flash = exactKey.endsWith('/deepseek-flash')
+    const multiplier = flash && isDeepSeekPeak() ? 2 : 1
     const costUsd = (
       input * finiteNumber(entry.input, 0) +
       output * finiteNumber(entry.output, 0) +
       cacheRead * finiteNumber(entry.cacheRead, 0) +
       cacheWrite * finiteNumber(entry.cacheWrite, 0)
-    ) / 1_000_000
+    ) * multiplier / 1_000_000
     return round(costUsd, 8)
   }
 
@@ -3389,6 +3404,13 @@ class AgiFederated {
       contextTokens = 0
     }
     if (contextTokens === 0) contextTokens = this.estimateInputTokens(session)
+    if (this.lastSettlement?.sessionId === sid && this.lastSettlement.usage) {
+      const settled = this.lastSettlement.usage
+      contextTokens = Math.max(
+        0,
+        Math.trunc(finiteNumber(settled.inputTokens, 0) + finiteNumber(settled.cacheReadTokens, 0) + finiteNumber(settled.outputTokens, 0)),
+      )
+    }
     const sessionUsage = sid ? this.usage.session(sid) : this.usage.blankBucket()
     const month = this.usage.snapshot().month
     const monthUsd = Object.values(month).reduce(
@@ -3496,6 +3518,11 @@ class AgiFederated {
         sessionUsd: round(sessionUsage.costUsd, 8),
         monthUsd: round(monthUsd, 8),
         totalUsd: round(this.usage.total().costUsd, 8),
+      },
+      pricing: {
+        model: model.model || '',
+        peak: isDeepSeekPeak(),
+        source: 'https://api-docs.deepseek.com/quick_start/pricing',
       },
       providers,
       streaming: {
