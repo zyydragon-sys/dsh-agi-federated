@@ -3,6 +3,21 @@
 The nested bundle keeps its own version, independent of the root
 `dsh-agi-federated` bundle (`plugins/dsh-quota-nexus/package.json`).
 
+## 1.7.0 — 2026-11-01
+
+- Auto model routing: `selectModel({ task })` maps a task class to the模型/账号
+  that fits it — `quick` prefers the cheap tier to save quota, `code`/`reasoning`
+  prefer the strong tier, `long` prefers the largest context window, `vision`
+  prefers a multimodal id. Classification is heuristic (model id/name + context
+  window from the official catalog) and every decision reports `source: auto|policy`.
+- Explicit overrides: `provider.modelPolicy = { quick, code, reasoning, long, vision }`
+  wins over the heuristic; settable through `POST /api/providers/edit`.
+- Read-only decision tool `quota_nexus_select_model` (task class → model + provider
+  with availability, balance and block reason) so an Agent can ask before spending
+  tokens. No upstream request is made and no quota is consumed.
+- API/UI: `POST /api/models/select`, and each card renders
+  “自动切换 quick→… · code→… · reasoning→…”.
+
 ## 1.6.0 — 2026-11-01
 
 - 0s live balances: a fast refresh loop (`balanceRefreshMs`, default 5000, min
