@@ -1,6 +1,6 @@
 /**
  * dsh-quota-nexus — Client half (Web)。
- * build: 1.11.0 (model-trend)
+ * build: 1.11.1 (compact-cards)
  *
  * 在“设置 → Quota Nexus”里渲染卡片列表式供应商管理：
  *   每行 = 提供商名称 + 状态点（已连接/离线/异常）+ 右侧“编辑”“删除”；
@@ -156,7 +156,6 @@ window.__ModuleLoader__.load({
         'discoveryHint': '自动扫描只列出候选，绝不静默导入；重复凭据会被标记。',
         'discoveryEmpty': '未发现本机凭据。',
         'duplicate': '已在池中',
-        'noQuotaData': '尚未观测到额度响应头（供应商未返回 x-ratelimit-* / anthropic-ratelimit-*）',
       },
       en: {
         'section.label': 'Quota Nexus',
@@ -283,7 +282,6 @@ window.__ModuleLoader__.load({
         'discoveryHint': 'Scanning only lists candidates; nothing is imported silently. Duplicates are flagged.',
         'discoveryEmpty': 'No local credential found.',
         'duplicate': 'Already in pool',
-        'noQuotaData': 'No quota headers observed yet (provider returned no x-ratelimit-* / anthropic-ratelimit-*)',
       },
     }
 
@@ -521,15 +519,11 @@ window.__ModuleLoader__.load({
     }
 
     const ProviderCard = ({ provider, t, now, onEdit, onDelete, onProbe, onSyncModels }) => {
-      const quotaText =
-        provider.quotaRatio === null || provider.quotaRatio === undefined
-          ? t('noQuotaData')
-          : `${t('quotaLeft')} ${pct(provider.quotaRatio)}%`
-      const observed = provider.quotaObservedAt
+      // 官方没给额度头时不再占用卡片版面：无数据就不渲染额度条与提示（诊断信息仍可在头部胶囊里查看）。
+      const hasQuota = typeof provider.quotaRatio === 'number'
+      const quotaText = hasQuota ? `${t('quotaLeft')} ${pct(provider.quotaRatio)}%` : ''
+      const observed = hasQuota && provider.quotaObservedAt
         ? ` · ${new Date(provider.quotaObservedAt).toLocaleTimeString()}`
-        : ''
-      const probeInfo = provider.lastProbeHttp
-        ? ` · probe HTTP ${provider.lastProbeHttp}${provider.lastProbeStatus ? ` (${provider.lastProbeStatus})` : ''}`
         : ''
       const cooldown =
         provider.cooldownMs > 0 ? ` · ${t('cooldownLeft')} ${Math.ceil(provider.cooldownMs / 1000)}s` : ''
@@ -609,8 +603,8 @@ window.__ModuleLoader__.load({
             { style: style.meta },
             `${provider.credential?.masked || '—'} · ${provider.kind || 'openai-compatible'}${provider.protocolSource === 'inferred' ? ' (auto)' : ''} · ${provider.baseUrl || '—'}${cooldown}`,
           ),
-          h(QuotaBar, { ratio: provider.quotaRatio }),
-          h('div', { style: style.meta }, `${quotaText}${observed}${probeInfo}`),
+          hasQuota ? h(QuotaBar, { ratio: provider.quotaRatio }) : null,
+          hasQuota ? h('div', { style: style.meta }, `${quotaText}${observed}`) : null,
           usageText ? h('div', { style: style.meta }, usageText) : null,
           planText ? h('div', { style: { ...style.meta, fontWeight: 600 } }, planText) : null,
           windowsBlock,
