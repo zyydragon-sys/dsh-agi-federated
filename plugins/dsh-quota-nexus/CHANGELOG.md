@@ -3,6 +3,19 @@
 The nested bundle keeps its own version, independent of the root
 `dsh-agi-federated` bundle (`plugins/dsh-quota-nexus/package.json`).
 
+## 1.10.0 — 2026-11-01
+
+- Usage dashboard (console-style): four KPI cards — Tokens, API requests, total
+  balance and active days — computed from the local event ring plus official
+  balances, never from estimates.
+- Weekly token heat map: `GET /api/usage/calendar?months=6` groups the event ring
+  into ISO weeks per month, and the UI renders one row per month with intensity-
+  shaded cells (value labels in K/M/B), mirroring the vendor console layout.
+- History: ledger records now carry `tokens`, and startup rebuilds the event ring
+  from `usage-ledger.jsonl` (last 90 days) so charts survive restarts.
+- Balance samples: each successful balance read is kept (30 days, 2000 samples) for
+  future spend-delta reporting.
+
 ## 1.9.0 — 2026-11-01
 
 - Plan windows: a subscription can declare multiple quota windows (e.g. `5h` and
