@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.0 — 2026-11-01
+
+- UI: add a safe `刷新界面` button (client reload only; no Host restart).
+- UI: add a `信任自检` card and `health` status object for white-box invariants.
+- Docs: add `EVOLUTION.md` with selective adoption and rejected pitfalls from the
+  refresh, PUA, white-box AGI, and evidence-first research proposals.
+
 ## 1.3.0 — 2026-11-01
 
 - Context: show occupancy percentage and 45/60/80% warning levels in the card
