@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { CONFIG_VERSION, DEFAULT_CONFIG, normalizeConfig, validateConfig } from './schemas/config.js'
 
 const PLUGIN_ID = 'dsh-agi-federated'
-const PLUGIN_VERSION = '1.0.1'
+const PLUGIN_VERSION = '1.1.0'
 const MEMORY_FILE = 'memory.json'
 const EVIDENCE_FILE = 'evidence.json'
 const USAGE_FILE = 'usage.json'
