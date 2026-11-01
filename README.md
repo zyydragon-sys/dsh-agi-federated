@@ -1,7 +1,7 @@
 # dsh-agi-federated
 
 **Author:** txcdragon  
-**Version:** 1.4.0  
+**Version:** 1.5.0  
 **Platform:** DeepSeek Harness Web (Host + `webServer` index tap)  
 **Persistence:** `D:\DeepSeek Harness\agi-federated` (created automatically)
 
@@ -27,6 +27,7 @@ node scripts/publish.mjs --plugin dsh-quota-nexus
 
 - **Hot Memory** — a bounded, byte-stable prompt snapshot per session.
 - **Clue Store + BM25** — regex-distilled summaries, keywords, seed tokens, and anchors; no transcript storage and no LLM calls.
+- **Project Memory Bank** — local-first, project-scoped knowledge pages shared by sessions in the same working directory, with BM25 recall, tags, graph links, and explicit remember/search/get/reflect tools.
 - **Surface checkpoint compaction** — old messages are removed from the model-visible surface with a constant-length `[AGI_CHECKPOINT]` node; no summarization model call.
 - **Staged skills** — writes go to `staged/`; promotion is deferred to idle/session-end review.
 - **Evidence gate** — every `write`/`edit` claim is cross-checked against a per-session index of tool parameter and output anchors (400 records), with a five-step false-positive ladder.
@@ -51,6 +52,10 @@ floating window.
 | `agi_status` | Model, session tokens, costs, provider balances, breaker countdown, evidence/skill counts, audit sequence. |
 | `agi_memory_snapshot` | Exact bounded Hot Memory + BM25 injection text. |
 | `agi_clue_search` | BM25 long-tail search over distilled clues. |
+| `agi_memory_remember` | Save a project/global knowledge page (redacted, bounded, deduplicated). |
+| `agi_memory_search` | BM25 search over project/global memory pages with graph links. |
+| `agi_memory_get` | Read one page by id or best query match. |
+| `agi_memory_reflect` | Deterministic duplicate merge; no model call. |
 | `agi_evidence_query` | Query the evidence index by keyword or anchor. |
 | `agi_skill_stage` | Stage a skill; never promotes immediately. |
 | `agi_skill_list` | List staged/promoted/rejected skill metadata. |
