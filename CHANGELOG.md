@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.6.9 — 2026-11-02
+
+- **不崩盘闸门**：新增 `scripts/preflight.mjs`，发布前强制跑「语法 → 19 条自检 → 两个包的无头
+  apply 装配 → profile 清单校验 → 客户端 5 个槽位渲染」。`publish.mjs` 默认执行该闸门，
+  失败即中止发布；`--skip-preflight` 仅保留给明确知情的手工场景。
+- `MAINTENANCE.md` 增加「不崩盘铁律」5 条（preflight、定时器必 catch、apply 不外抛、profile 自愈、
+  四项验收口径）。
+- 事故取证：崩溃日志显示 `web boot: 1 entry did not activate — dsh-agi-federated: loading`，
+  DSH 随后把 profile 的 bundles 裁剪到 2 条，导致所有插件（含本插件）消失。
+  已注册登录自愈项 `HKCU\...\Run\DSH-Profile-Guard` 指向 `profile-guard.mjs --fix --golden`。
+
 ## 1.6.8 — 2026-11-02
 
 - 随包 `dsh-quota-nexus` 1.23.1：取证修正 + bundles 缩短检测（不自动回滚）。
