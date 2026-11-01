@@ -20,6 +20,11 @@ window.__ModuleLoader__.load({
     /** locale.bind() 的稳定翻译函数；词典缺失时为 null，组件内回落内置词典。 */
     let translateRef = null
 
+    const isZh = () => {
+      const lang = (typeof navigator !== 'undefined' && navigator.language) || 'en'
+      return lang.toLowerCase().startsWith('zh')
+    }
+
     const NS = 'quota-nexus'
     const BASE = '/quota-nexus'
     const STRATEGIES = ['priority', 'round-robin', 'balanced', 'sticky']
@@ -54,6 +59,8 @@ window.__ModuleLoader__.load({
         'field.baseUrl': 'Base URL（OpenAI 兼容协议）',
         'field.apiKey': 'API Key',
         'field.validate': '保存前校验连通性',
+        'hint.anthropic':
+          'Anthropic Messages 协议：鉴权头为 x-api-key + anthropic-version: 2023-06-01。baseUrl 填到 /v1 为止（官方为 https://api.anthropic.com/v1，中转站填其 /v1 地址）。',
         'status.connected': '已连接',
         'status.error': '异常',
         'status.unavailable': '不可用',
@@ -108,6 +115,8 @@ window.__ModuleLoader__.load({
         'field.baseUrl': 'Base URL (OpenAI compatible)',
         'field.apiKey': 'API Key',
         'field.validate': 'Verify connectivity before saving',
+        'hint.anthropic':
+          'Anthropic Messages protocol: auth is x-api-key plus anthropic-version: 2023-06-01. Point baseUrl at a /v1 root (official: https://api.anthropic.com/v1; a relay: its own /v1 address).',
         'status.connected': 'Connected',
         'status.error': 'Error',
         'status.unavailable': 'Unavailable',
@@ -147,7 +156,15 @@ window.__ModuleLoader__.load({
       { id: 'openrouter', label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1' },
       { id: 'ollama', label: 'Ollama（本机）', baseUrl: 'http://127.0.0.1:11434/v1' },
       { id: 'custom', label: '自定义 OpenAI 兼容服务', baseUrl: '' },
+      { id: 'custom-anthropic', label: '自定义 Anthropic 协议服务（Messages）', baseUrl: '' },
     ]
+
+    /** 供应商 → 协议族：决定鉴权头与提示文案。 */
+    const PROTOCOL = {
+      anthropic: 'anthropic-messages',
+      'custom-anthropic': 'anthropic-messages',
+      gemini: 'gemini',
+    }
 
     const STATUS_COLOR = {
       connected: 'var(--dsw-alias-state-success-primary)',
@@ -750,6 +767,9 @@ window.__ModuleLoader__.load({
                     onChange: (event) => setBaseUrl(event.target.value),
                   }),
                 ),
+                PROTOCOL[vendorId] === 'anthropic-messages'
+                  ? h('div', { style: style.note }, t('hint.anthropic'))
+                  : null,
                 h(
                   'div',
                   { style: style.field },
@@ -868,6 +888,68 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /**
+     * 左侧栏图标（sidebar.panellist）：owner 传入 { size, active }。
+     * 选中时用品牌色，未选中跟随 currentColor。
+     */
+    function QuotaNexusIcon({ size = 20, active = false }) {
+      const edge = Number.isFinite(size) && size > 0 ? size : 20
+      const accent = active ? 'var(--dsw-alias-brand-primary)' : 'currentColor'
+      return h(
+        'svg',
+        {
+          viewBox: '0 0 24 24',
+          width: edge,
+          height: edge,
+          fill: 'none',
+          'aria-hidden': true,
+          style: { display: 'block' },
+        },
+        h('circle', { cx: 12, cy: 12, r: 2.4, fill: accent }),
+        h(
+          'g',
+          { stroke: accent, strokeWidth: 1.6, strokeLinecap: 'round', opacity: active ? 0.95 : 0.7 },
+          h('path', { d: 'M12 9.6V4.8' }),
+          h('path', { d: 'M12 14.4v4.8' }),
+          h('path', { d: 'M9.6 10.8 5.4 7.2' }),
+          h('path', { d: 'M14.4 13.2 18.6 16.8' }),
+          h('path', { d: 'M14.4 10.8 18.6 7.2' }),
+          h('path', { d: 'M9.6 13.2 5.4 16.8' }),
+        ),
+        h(
+          'g',
+          { fill: accent },
+          h('circle', { cx: 12, cy: 4, r: 1.3 }),
+          h('circle', { cx: 12, cy: 20, r: 1.3 }),
+          h('circle', { cx: 4.8, cy: 6.8, r: 1.3 }),
+          h('circle', { cx: 19.2, cy: 17.2, r: 1.3 }),
+          h('circle', { cx: 19.2, cy: 6.8, r: 1.3 }),
+          h('circle', { cx: 4.8, cy: 17.2, r: 1.3 }),
+        ),
+      )
+    }
+
+    /** 左侧栏图标点开后的主面板（main: key = quota-nexus）。 */
+    function QuotaNexusPanel() {
+      return h(
+        'div',
+        {
+          style: {
+            height: '100%',
+            overflow: 'auto',
+            padding: '20px 24px 32px',
+            boxSizing: 'border-box',
+            background: 'var(--dsw-alias-bg-base)',
+          },
+        },
+        h(
+          'div',
+          { style: { maxWidth: 960, margin: '0 auto' } },
+          h(QuotaNexusSection, null),
+        ),
+      )
+    }
+
     return {
       inject: ['slots'],
       apply(ctx) {
@@ -894,19 +976,27 @@ window.__ModuleLoader__.load({
           const bound = locale.bind(NS)
           if (typeof bound === 'function') translateRef = bound
         }
+        const title = () => (isZh() ? '额度中枢' : 'Quota Nexus')
+
+        // 设置页：完整管理页（卡片列表 + 策略 + 预警）。
         ctx.slots.inject('settings.section', () =>
           ctx.slots.register(
-            {
-              name: 'settings.section',
-              id: 'quota-nexus',
-              order: 12,
-              label: () => {
-                const lang = (typeof navigator !== 'undefined' && navigator.language) || 'en'
-                return lang.toLowerCase().startsWith('zh') ? '额度中枢' : 'Quota Nexus'
-              },
-            },
+            { name: 'settings.section', id: 'quota-nexus', order: 12, label: title },
             QuotaNexusSection,
           ),
+        )
+
+        // 左侧栏：面板图标（id 与下方 main 面板的 key 对应）。
+        ctx.slots.inject('sidebar.panellist', () =>
+          ctx.slots.register(
+            { name: 'sidebar.panellist', id: 'quota-nexus', order: 5, label: title },
+            QuotaNexusIcon,
+          ),
+        )
+
+        // 主面板：点左侧栏图标后在内容列渲染同一份实时视图。
+        ctx.slots.inject('main', () =>
+          ctx.slots.register({ name: 'main', key: 'quota-nexus' }, QuotaNexusPanel),
         )
       },
     }
