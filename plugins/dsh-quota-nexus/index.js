@@ -345,7 +345,7 @@ const VENDOR_CATALOG = Object.freeze({
 const CNY_PER_USD_REF = 7.1
 
 /** 与 client.js 的 BUILD_TAG 同步的构建号；概览里下发，供客户端自愈判断。 */
-export const PLUGIN_BUILD = 'v1.23.1'
+export const PLUGIN_BUILD = 'v1.23.2'
 
 const PRICE_SNAPSHOT = Object.freeze({
   source: 'https://api-docs.deepseek.com/quick_start/pricing',
@@ -4088,7 +4088,7 @@ export const compatible = (current, candidate, minContext, requireVision) =>
  * 针对真实事故：外部 PowerShell 写入的 UTF-8 BOM、中文路径乱码、丢失 bundle 条目。
  */
 export const validateProfileManifest = (bytes, options = {}) => {
-  const required = options.required ?? ['dsh-quota-nexus', 'dsh-agi-federated']
+  const required = options.required ?? ['dsh-quota-nexus']
   const problems = []
   if (!bytes || bytes.length === 0) return { ok: false, problems: ['文件为空'] }
   if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) problems.push('带 UTF-8 BOM（PowerShell 写入特征）')
