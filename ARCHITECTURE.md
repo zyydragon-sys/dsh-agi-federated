@@ -1,7 +1,7 @@
 # dsh-agi-federated — Architecture Design
 
 **Author:** txcdragon  
-**Version:** 1.2.0  
+**Version:** 1.3.0  
 **Target:** DeepSeek Harness `0.2.1-rc.5` (compatible range `>=0.2.1-rc.5 <0.3.0`)  
 **License:** not declared by the package; choose one before public redistribution.
 
@@ -283,7 +283,8 @@ ledger stores token counts and recomputes cost with those rates; the calendar
 does not model Chinese public holidays, so the official page remains the billing
 source of truth.
 
-**Context display.** The panel's context number is the last settled request's
+**Context display.** The panel shows the context occupancy percentage (45/60/80% levels) from the
+last settled request's
 official input + cache-read + output token total, not a cumulative session sum.
 The detail view shows that breakdown beside the provider-reported balance.
 
