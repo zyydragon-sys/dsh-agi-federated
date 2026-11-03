@@ -69,7 +69,8 @@ const GROUPS = {
   },
   // 椤圭洰绾ф妧鑳界殑鐗堟湰鍖栧壇鏈紙鍗曞悜闀滃儚鑷?<workspace>/.dsh/skills锛夈€?  'skills': { prefix: 'skills', dir: 'skills' },
   // A nested bundle: the whole directory is walked.
-  'dsh-quota-nexus': { prefix: 'plugins/dsh-quota-nexus', dir: 'plugins/dsh-quota-nexus' },
+  'dsh-arch-01-baseline': { prefix: 'plugins/dsh-arch-01-baseline', dir: 'plugins/dsh-arch-01-baseline' },
+  'dsh-workbench-templates': { prefix: 'plugins/dsh-workbench-templates', dir: 'plugins/dsh-workbench-templates' },
 }
 
 function parseArgs(argv) {
