@@ -1,0 +1,5 @@
+# dsh bundle patch：把 ARCH-01 架构基线插件插入 profile 的层栈。
+# 全部架构内容只存在于一个文件：arch-baseline.md（随包提供，不拆分、不单独设置）。
+- insert:
+    - id: arch-baseline
+      name: 'dsh-arch-01-baseline'
