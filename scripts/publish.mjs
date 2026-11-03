@@ -16,7 +16,7 @@
  *
  * Usage:
  *   node scripts/publish.mjs --all
- *   node scripts/publish.mjs --plugin dsh-quota-nexus
+ *   node scripts/publish.mjs --plugin dsh-arch-01-baseline
  *   node scripts/publish.mjs --plugin dsh-agi-federated --dry-run
  *
  * Options:
