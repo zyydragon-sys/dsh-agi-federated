@@ -1,0 +1,5 @@
+# dsh bundle patch：把「多智能体工作台 · 模板集 v3」插件插入 profile 的层栈。
+# 全部模板内容只存在于一个文件：assets/workbench-templates-v3.md（随包提供，不拆分）。
+- insert:
+    - id: workbench-templates
+      name: 'dsh-workbench-templates'
