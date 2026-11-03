@@ -1,0 +1,39 @@
+{
+  "name": "dsh-arch-01-baseline",
+  "version": "3.4.0",
+  "private": true,
+  "description": "DSH 基础安装架构基线 ARCH-01（v3 MCP 强化版）：单一文件保存全部内容，提供「架构工作台」面板（实时运行时状态、可交互分层/服务器、检查器、版本检查与一键升级）与 arch_baseline 工具。",
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "lib/index.js",
+    "client.js",
+    "arch-baseline.md",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg"
+  ],
+  "license": "MIT",
+  "keywords": [
+    "dsh-plugin",
+    "deepseek",
+    "harness",
+    "architecture",
+    "baseline"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  }
+}
