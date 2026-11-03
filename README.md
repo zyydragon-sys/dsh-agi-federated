@@ -22,7 +22,7 @@ Publishing local edits to GitHub (no git needed on this machine):
 
 ```powershell
 node scripts/publish.mjs --all
-node scripts/publish.mjs --plugin dsh-quota-nexus
+node scripts/publish.mjs --plugin dsh-arch-01-baseline
 ```
 
 ## What it does
