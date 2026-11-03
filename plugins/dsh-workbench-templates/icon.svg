@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Multi-agent workbench template set">
+  <rect x="2" y="2" width="60" height="60" rx="13" fill="#101b2e"/>
+  <rect x="24.5" y="10" width="15" height="9.5" rx="3" fill="#8b7cff" stroke="#c9c1ff" stroke-width="1.6"/>
+  <path d="M32 19.5V25M13 32.5h38M13 25v7.5M32 25v7.5M51 25v7.5" fill="none" stroke="#38d3c2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="6.5" y="32.5" width="13" height="9.5" rx="3" fill="none" stroke="#38d3c2" stroke-width="2.4"/>
+  <rect x="25.5" y="32.5" width="13" height="9.5" rx="3" fill="none" stroke="#38d3c2" stroke-width="2.4"/>
+  <rect x="44.5" y="32.5" width="13" height="9.5" rx="3" fill="none" stroke="#38d3c2" stroke-width="2.4"/>
+  <path d="M13 42v5.5h38V56" fill="none" stroke="#6d7ca6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.55"/>
+  <circle cx="13" cy="56" r="3" fill="#8b7cff"/>
+  <circle cx="32" cy="56" r="3" fill="#38d3c2"/>
+  <circle cx="51" cy="56" r="3" fill="#8b7cff" opacity="0.6"/>
+</svg>
