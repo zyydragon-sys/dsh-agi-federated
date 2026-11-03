@@ -14,7 +14,9 @@ This repository ships more than one DSH bundle. The root is `dsh-agi-federated`;
 | Path | Bundle | What it is |
 |---|---|---|
 | `/` | `dsh-agi-federated` | The federated AGI layer described below. |
-| [`plugins/dsh-quota-nexus`](plugins/dsh-quota-nexus) | `dsh-quota-nexus` **v1.6.10** | Multi-provider quota pool: provider registry UI (OpenAI-compatible, Anthropic Messages incl. custom `base_url` relays, Gemini), O(1) lease scheduling with an 8-account budget, split 429/5xx breakers with credential fuse, write-behind usage ledger, and 0s SSE quota telemetry with 80/90/95% alerts. Adds a left-sidebar panel entry beside Settings. |
+
+| [`plugins/dsh-arch-01-baseline`](plugins/dsh-arch-01-baseline) | `dsh-arch-01-baseline` **v3.4.0** | DSH 架构基线工作台：实时运行时状态、分层/MCP/启动顺序可视化、检查器、版本检查与一键升级；单文件保存 ARCH-01 全文。 |
+| [`plugins/dsh-workbench-templates`](plugins/dsh-workbench-templates) | `dsh-workbench-templates` **v4.0.0** | 多智能体工作台模板集 v3：Host SSE 实时看板、Team 成员与任务板、归档管理。 |
 
 Publishing local edits to GitHub (no git needed on this machine):
 
