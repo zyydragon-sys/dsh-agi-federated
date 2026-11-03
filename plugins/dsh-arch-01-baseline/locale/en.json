@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "ARCH-01 Installation Architecture Baseline",
+    "description": "Keeps the complete DSH installation architecture baseline v3 (MCP-enhanced) in a single file and exposes it through the arch_baseline tool and the ARCH-01 sidebar panel."
+  }
+}
