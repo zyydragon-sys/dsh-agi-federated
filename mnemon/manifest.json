@@ -1,0 +1,47 @@
+{
+  "format": "mnemonpack",
+  "version": 1,
+  "scope": "full",
+  "exportedAt": "2026-11-03T14:36:50.034Z",
+  "source": {
+    "plugin": "dsh-mnemon",
+    "pluginVersion": "0.5.39"
+  },
+  "components": [
+    "runtime",
+    "documents",
+    "memory-spaces"
+  ],
+  "summary": [
+    {
+      "component": "runtime",
+      "files": 3,
+      "bytes": 36,
+      "items": 0
+    },
+    {
+      "component": "documents",
+      "files": 1,
+      "bytes": 38,
+      "items": 0
+    },
+    {
+      "component": "memory-spaces",
+      "files": 1,
+      "bytes": 35,
+      "items": 0
+    }
+  ],
+  "sync": {
+    "channel": "git",
+    "branch": "mnemon-sync",
+    "subdir": "mnemon/",
+    "pushedAt": "2026-11-03T14:36:50.034Z",
+    "machine": {
+      "id": "9927d93d-e816-4e45-8fab-c9f3495dc431",
+      "label": "阳的台式机",
+      "createdAt": "2026-11-03T14:17:21.901Z"
+    },
+    "tombstones": []
+  }
+}
