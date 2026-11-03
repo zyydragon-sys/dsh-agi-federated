@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Layered architecture baseline">
+  <rect x="2" y="2" width="60" height="60" rx="13" fill="#0f2a4a"/>
+  <path d="M32 11 51 20.5 32 30 13 20.5Z" fill="#1f6feb" stroke="#8fd6ff" stroke-width="2.6" stroke-linejoin="round"/>
+  <path d="M13 31.5 32 41 51 31.5" fill="none" stroke="#8fd6ff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M13 41.5 32 51 51 41.5" fill="none" stroke="#5aa9e6" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="32" cy="20.5" r="2.8" fill="#eaf6ff"/>
+</svg>
