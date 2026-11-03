@@ -1,0 +1,40 @@
+{
+  "name": "dsh-workbench-templates",
+  "version": "4.0.0",
+  "private": true,
+  "description": "多智能体工作台 · 模板集 v3：全部卡片由 Host SSE 推送驱动（每 500ms），实时显示会话、Agent、上下文 Token、Team 成员与任务板、工具数、事件数、内存与运行时长；任务板只保留未完成工作，提供可展开的归档历史与单条/全部删除（二次确认、CAS 校验、请求体限长与并发锁，失败只返回 JSON 错误，不影响面板与 Host）。",
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "lib/index.js",
+    "client.js",
+    "assets/workbench-templates-v3.md",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg"
+  ],
+  "license": "MIT",
+  "keywords": [
+    "dsh-plugin",
+    "deepseek",
+    "harness",
+    "multi-agent",
+    "workbench",
+    "templates"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  }
+}
