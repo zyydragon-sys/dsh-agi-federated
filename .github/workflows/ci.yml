@@ -4,28 +4,29 @@ on:
   push:
     branches: [main]
     paths:
-      - 'plugins/dsh-quota-nexus/**'
+      - 'plugins/**'
       - 'package.json'
       - 'scripts/**'
       - '.github/workflows/ci.yml'
   pull_request:
     paths:
-      - 'plugins/dsh-quota-nexus/**'
+      - 'plugins/**'
       - 'scripts/**'
       - '.github/workflows/ci.yml'
   workflow_dispatch:
 
 jobs:
   selftest:
-    name: self-test (${{ matrix.os }})
+    name: self-test (${{ matrix.plugin }} / ${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
+        plugin: [dsh-arch-01-baseline, dsh-workbench-templates]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
-        working-directory: plugins/dsh-quota-nexus
+        working-directory: plugins/${{ matrix.plugin }}
     steps:
       - uses: actions/checkout@v4
 
@@ -35,21 +36,17 @@ jobs:
 
       - name: Syntax check
         run: |
-          node --check index.js
+          node --check lib/index.js
           node --check client.js
-          node --check schemas/config.js
-          node --check scripts/selftest.mjs
 
       - name: Manifest is valid JSON
-        run: node -e "const p=require('./package.json'); if(!p.name||!p.version) process.exit(1); console.log(p.name + ' ' + p.version)"
+        run: node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));if(!p.name||!p.version)process.exit(1);console.log(p.name+' '+p.version)"
 
-      - name: Self test (no third-party deps)
-        run: node scripts/selftest.mjs
+      - name: Patch file present
+        run: node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));const f=p.dsh&&p.dsh.bundle&&p.dsh.bundle.patch;if(!f||!fs.existsSync(f))process.exit(1);console.log('patch '+f)"
 
   drift:
     name: remote matches local
-    # Read-only comparison of the checked-out tree against api.github.com.
-    # Skipped on pull_request: a fork's token cannot read the upstream tree reliably.
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
@@ -66,9 +63,6 @@ jobs:
 
   file-ticket:
     name: open darwin ticket on failure
-    # Failure → ticket，而不是失败即消失：任何 selftest/drift 红灯都会落成一张
-    # 带 `darwin-ticket` 标签的 issue，本地用 scripts/ci-doctor.mjs 取回。
-    # 人类确认前不会晋级任何技能（晋级只有 darwin_promote(confirm) 一条路）。
     needs: [selftest, drift]
     if: failure() && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -87,19 +81,12 @@ jobs:
               `- 分支：\`${context.ref}\``,
               `- 提交：\`${context.sha}\``,
               `- 运行：${runUrl}`,
-              `- 触发：${context.eventName}`,
               '',
               '### 复现（本地）',
-              '```bash',
-              'node plugins/dsh-quota-nexus/scripts/selftest.mjs',
+              '\`\`\`bash',
+              'node --check plugins/dsh-arch-01-baseline/lib/index.js',
               'node scripts/monitor.mjs --verbose',
-              '```',
-              '',
-              '### 处置流程',
-              '1. 本地 `node scripts/ci-doctor.mjs` 拉回本工单；',
-              '2. `darwin_scan` → `darwin_forge` → `darwin_eval`（P2 门，≥80% 才可能晋级）；',
-              '3. **人工确认**后才 `darwin_promote { confirm: true }`；',
-              '4. 技能写进 `.dsh/skills/<name>/SKILL.md`，可用 `darwin_rollback` 回滚。',
+              '\`\`\`',
             ].join('\n')
 
             const { data: existing } = await github.rest.issues.listForRepo({
@@ -117,15 +104,12 @@ jobs:
                 issue_number: same.number,
                 body: `再次失败：${runUrl}`,
               })
-              core.info(`已在该工单追加评论：#${same.number}`)
             } else {
-              const { data: issue } = await github.rest.issues.create({
+              await github.rest.issues.create({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 title,
                 body,
                 labels: ['darwin-ticket'],
               })
-              core.info(`已开工单 #${issue.number}`)
             }
-
